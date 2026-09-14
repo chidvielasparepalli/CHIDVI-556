@@ -33,6 +33,14 @@ from PyQt6.QtWidgets import (
     QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar,
 )
 
+# Optional Qt Multimedia support for the animated avatar.
+try:
+    from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
+    from PyQt6.QtMultimediaWidgets import QVideoWidget
+    _MULTIMEDIA = True
+except ImportError:
+    _MULTIMEDIA = False
+
 # Optional: the hands-board webview (barehands). Not fatal if the WebEngine
 # bundle is missing — the board then just opens in Chrome instead.
 try:
@@ -2828,9 +2836,37 @@ class RemoteKeyOverlay(QWidget):
 
 
 
+class _AvatarStatusOverlay(QWidget):
+    """Transparent paint layer that keeps the state visual above the video."""
+    def __init__(self, owner, parent=None):
+        super().__init__(parent or owner)
+        self._owner = owner
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        if not p.isActive():
+            return
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self._owner._paint_status_visual(p, self.width(), self.height())
+        p.end()
+
+
 class TargetCenterPanel(QWidget):
-    """Reference-style cinematic home panel with a live visual status indicator."""
+    """Reference-style cinematic home panel with an instant idle/talking avatar swap."""
     _REF_W, _REF_H = 956, 656
+
+    _IDLE_NAMES = (
+        "idle.mp4", "avatar_idle.mp4", "avatar_still.mp4", "still.mp4", "listening.mp4"
+    )
+    _START_TALK_NAMES = (
+        "started_talking.mp4", "talk_started.mp4", "avatar_started_talking.mp4",
+    )
+    _CONT_TALK_NAMES = (
+        "continuous_talking.mp4", "talking_continuous.mp4", "avatar_continuous_talking.mp4",
+        "avatar_talking.mp4", "avatar_speaking.mp4", "talking.mp4", "speaking.mp4", "talk.mp4"
+    )
 
     def __init__(self, face_path: str, assistant_name: str = "JARVIS", parent=None):
         super().__init__(parent)
@@ -2851,6 +2887,21 @@ class TargetCenterPanel(QWidget):
         self.setMinimumSize(500, 400)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"background:{C.BG};")
+
+        # Video layer: both videos are loaded and kept playing muted. Only the
+        # active widget is visible, which makes LISTENING <-> SPEAKING switches
+        # visually immediate and keeps the frame geometry identical.
+        self._video_stack = None
+        self._idle_player = None
+        self._start_talk_player = None
+        self._continuous_talk_player = None
+        self._idle_video = None
+        self._start_talk_video = None
+        self._continuous_talk_video = None
+        self._media_ready = False
+        self._avatar_mode = "idle"
+        self._start_talk_pending = False
+        self._setup_avatar_videos()
 
         # Transparent hit-zones remain aligned to the artwork's radial controls.
         specs = [
@@ -2888,10 +2939,15 @@ class TargetCenterPanel(QWidget):
             b._ref_pos = (px, py)
             self._buttons.append(b)
 
+        # Status overlay must sit above both video widgets.
+        self._status_overlay = _AvatarStatusOverlay(self, self)
+        self._status_overlay.raise_()
+
         self._name = QLabel(self)
         self._name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._name.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
         self._name.setStyleSheet(f"color:{C.PRI};background:transparent;")
+        self._name.raise_()
 
         # Small background plate only covers the artwork's baked-in text.
         self._dynamic_plate = QFrame(self)
@@ -2900,11 +2956,164 @@ class TargetCenterPanel(QWidget):
             "QFrame { background: rgba(0, 10, 18, 175); "
             f"border: 1px solid {C.BORDER_B}; border-radius: 7px; }}"
         )
+        self._dynamic_plate.raise_()
+        self._name.raise_()
+
+        # Radial buttons must remain the top-most interactive layer.
+        for b in self._buttons:
+            b.raise_()
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._animate)
         self._timer.start(33)
         self._update_name()
+        self.set_state("LISTENING")
+
+    def _find_avatar_video(self, names):
+        candidates = []
+        for root in (BASE_DIR / "config", BASE_DIR):
+            for name in names:
+                path = root / name
+                if path.exists() and path.is_file():
+                    candidates.append(path)
+        return candidates[0] if candidates else None
+
+    def _setup_avatar_videos(self):
+        """Load the three avatar clips and keep their geometry identical.
+
+        idle.mp4               -> listening / muted / thinking / processing
+        started_talking.mp4    -> one-shot transition when speech begins
+        continuous_talking.mp4 -> looping speech animation after the transition
+        """
+        if not _MULTIMEDIA:
+            return
+
+        idle_path = self._find_avatar_video(self._IDLE_NAMES)
+        start_path = self._find_avatar_video(self._START_TALK_NAMES)
+        cont_path = self._find_avatar_video(self._CONT_TALK_NAMES)
+        if idle_path is None or start_path is None or cont_path is None:
+            return
+
+        try:
+            self._video_stack = QStackedWidget(self)
+            self._video_stack.setObjectName("AvatarVideoStack")
+            self._video_stack.setStyleSheet("background: transparent; border: none;")
+
+            self._idle_video = QVideoWidget(self._video_stack)
+            self._start_talk_video = QVideoWidget(self._video_stack)
+            self._continuous_talk_video = QVideoWidget(self._video_stack)
+            for video in (self._idle_video, self._start_talk_video, self._continuous_talk_video):
+                video.setStyleSheet("background: transparent;")
+                video.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatioByExpanding)
+                self._video_stack.addWidget(video)
+            self._video_stack.setCurrentIndex(0)
+
+            self._idle_player = QMediaPlayer(self)
+            self._start_talk_player = QMediaPlayer(self)
+            self._continuous_talk_player = QMediaPlayer(self)
+
+            self._idle_audio = QAudioOutput(self)
+            self._start_talk_audio = QAudioOutput(self)
+            self._continuous_talk_audio = QAudioOutput(self)
+            for audio in (self._idle_audio, self._start_talk_audio, self._continuous_talk_audio):
+                audio.setVolume(0.0)
+
+            self._idle_player.setAudioOutput(self._idle_audio)
+            self._start_talk_player.setAudioOutput(self._start_talk_audio)
+            self._continuous_talk_player.setAudioOutput(self._continuous_talk_audio)
+
+            self._idle_player.setVideoOutput(self._idle_video)
+            self._start_talk_player.setVideoOutput(self._start_talk_video)
+            self._continuous_talk_player.setVideoOutput(self._continuous_talk_video)
+
+            self._idle_player.setSource(QUrl.fromLocalFile(str(idle_path.resolve())))
+            self._start_talk_player.setSource(QUrl.fromLocalFile(str(start_path.resolve())))
+            self._continuous_talk_player.setSource(QUrl.fromLocalFile(str(cont_path.resolve())))
+
+            # Idle loops forever. The two talking clips are explicitly controlled:
+            # started_talking is one-shot; continuous_talking loops.
+            self._idle_player.setLoops(QMediaPlayer.Loops.Infinite)
+            self._start_talk_player.setLoops(QMediaPlayer.Loops.Once)
+            self._continuous_talk_player.setLoops(QMediaPlayer.Loops.Infinite)
+            self._start_talk_player.mediaStatusChanged.connect(self._on_start_talk_status)
+            self._start_talk_player.positionChanged.connect(self._on_start_talk_position)
+
+            self._media_ready = True
+            self._avatar_mode = "idle"
+
+            # Prime the idle clip immediately. The talking clips are loaded but not
+            # played until the speech state arrives.
+            self._idle_player.play()
+            self._video_stack.raise_()
+        except Exception:
+            self._video_stack = None
+            self._idle_player = None
+            self._start_talk_player = None
+            self._continuous_talk_player = None
+            self._idle_video = None
+            self._start_talk_video = None
+            self._continuous_talk_video = None
+            self._media_ready = False
+
+    def _start_continuous_talking(self):
+        """Switch to the looping continuous-talking clip exactly once."""
+        if not self._media_ready or self._video_stack is None:
+            return
+        if self.state != "SPEAKING":
+            return
+        if self._avatar_mode == "continuous_talking":
+            return
+        try:
+            self._start_talk_pending = False
+            if self._start_talk_player is not None:
+                self._start_talk_player.stop()
+            if self._idle_player is not None:
+                self._idle_player.pause()
+            if self._continuous_talk_player is not None:
+                self._continuous_talk_player.setLoops(QMediaPlayer.Loops.Infinite)
+                self._continuous_talk_player.setPosition(0)
+                self._continuous_talk_player.play()
+            self._video_stack.setCurrentIndex(2)
+            self._avatar_mode = "continuous_talking"
+        except Exception:
+            pass
+
+    def _on_start_talk_position(self, position):
+        """Use the actual playback position as the authoritative one-shot boundary."""
+        if not self._media_ready or self._start_talk_player is None:
+            return
+        if self.state != "SPEAKING" or self._avatar_mode != "started_talking":
+            return
+        try:
+            duration = self._start_talk_player.duration()
+            if duration > 0 and position >= max(0, duration - 80):
+                self._start_continuous_talking()
+        except Exception:
+            pass
+
+    def _on_start_talk_status(self, status):
+        """Handle asynchronous loading without ever restarting the one-shot clip."""
+        if not self._media_ready or self._start_talk_player is None:
+            return
+
+        loaded = status in (
+            QMediaPlayer.MediaStatus.LoadedMedia,
+            QMediaPlayer.MediaStatus.BufferedMedia,
+        )
+
+        if self.state == "SPEAKING" and self._avatar_mode == "started_talking":
+            if loaded and self._start_talk_pending:
+                try:
+                    self._start_talk_pending = False
+                    self._start_talk_player.setLoops(QMediaPlayer.Loops.Once)
+                    self._start_talk_player.setPosition(0)
+                    self._start_talk_player.play()
+                except Exception:
+                    pass
+                return
+
+            if status == QMediaPlayer.MediaStatus.EndOfMedia:
+                self._start_continuous_talking()
 
     def _update_name(self):
         self._name.setText(self._assistant_name.upper())
@@ -2928,11 +3137,56 @@ class TargetCenterPanel(QWidget):
         self._live_spk *= 0.86
         target = max(self._live_mic, self._live_spk)
         self._amp += (target - self._amp) * 0.35
-        self.update()
+        self._status_overlay.update()
+
+    def _switch_avatar(self):
+        """Apply the three-clip avatar state machine with immediate interruption."""
+        if not self._media_ready or self._video_stack is None:
+            return
+
+        target = "speaking" if self.state == "SPEAKING" else "idle"
+
+        if target == "idle":
+            # Stop both speech players first so an interruption never continues
+            # underneath the idle clip. Restart idle from its beginning.
+            try:
+                if self._start_talk_player is not None:
+                    self._start_talk_pending = False
+                    self._start_talk_player.stop()
+                if self._continuous_talk_player is not None:
+                    self._continuous_talk_player.stop()
+                self._idle_player.setPosition(0)
+                self._idle_player.play()
+                self._video_stack.setCurrentIndex(0)
+                self._avatar_mode = "idle"
+            except Exception:
+                pass
+            return
+
+        # Already in one of the speech clips: do not restart the animation on
+        # every SPEAKING state update.
+        if self._avatar_mode in ("started_talking", "continuous_talking"):
+            return
+
+        try:
+            self._idle_player.pause()
+            self._continuous_talk_player.stop()
+            self._video_stack.setCurrentIndex(1)
+            self._avatar_mode = "started_talking"
+            # QMediaPlayer loads local files asynchronously. Mark the transition
+            # pending so the media-status callback starts it even when SPEAKING
+            # arrives before the decoder has reached LoadedMedia.
+            self._start_talk_pending = True
+            self._start_talk_player.setPosition(0)
+            self._start_talk_player.play()
+        except Exception:
+            pass
 
     def set_state(self, state: str):
         self.state = state
         self.speaking = state == "SPEAKING"
+        self._switch_avatar()
+        self._status_overlay.update()
         self.update()
 
     def _status_color(self):
@@ -2945,29 +3199,20 @@ class TargetCenterPanel(QWidget):
         return qcol(C.PRI)
 
     def _paint_status_visual(self, p, W, H):
-        """Draw a non-text state indicator below the assistant name.
-
-        SPEAKING  -> animated audio bars/wave
-        LISTENING -> three softly pulsing dots
-        MUTED     -> dim dots with a diagonal mute slash
-        THINKING/PROCESSING -> animated orbiting dots
-        """
+        """Draw a non-text state indicator below the assistant name."""
         cx = W * 0.5
         cy = H * 0.855 + 43
-        col = self._status_color()
         p.setPen(Qt.PenStyle.NoPen)
 
         state = self.state
         if self.muted:
-            # Quiet/disabled visual: five dim dots plus a diagonal slash.
-            dot_y = cy
             spacing = 12
             for i in range(-2, 3):
                 a = 65 if i else 105
                 p.setBrush(qcol(C.MUTED_C, a))
-                p.drawEllipse(QPointF(cx + i * spacing, dot_y), 2.2, 2.2)
+                p.drawEllipse(QPointF(cx + i * spacing, cy), 2.2, 2.2)
             p.setPen(QPen(qcol(C.MUTED_C, 205), 2))
-            p.drawLine(QPointF(cx - 31, dot_y + 12), QPointF(cx + 31, dot_y - 12))
+            p.drawLine(QPointF(cx - 31, cy + 12), QPointF(cx + 31, cy - 12))
             return
 
         if self.speaking or state == "SPEAKING":
@@ -2996,7 +3241,6 @@ class TargetCenterPanel(QWidget):
                 p.drawEllipse(QPointF(x, y), 3.0, 3.0)
             return
 
-        # LISTENING / idle: three centered dots that gently breathe.
         spacing = 13
         phase = self._tick * 0.10
         for i in range(3):
@@ -3009,6 +3253,9 @@ class TargetCenterPanel(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         W, H = self.width(), self.height()
+
+        if self._video_stack is not None:
+            self._video_stack.setGeometry(0, 0, W, H)
 
         sx = W / self._REF_W
         sy = H / self._REF_H
@@ -3035,13 +3282,18 @@ class TargetCenterPanel(QWidget):
             y = int(oy + py * scale - b.height() / 2)
             b.move(x, y)
 
-        # Position the live name/status plate just below the reference character.
         plate_w = min(310, int(W * 0.38))
         plate_h = 66
         px = int((W - plate_w) / 2)
         py = int(H * 0.855)
         self._dynamic_plate.setGeometry(px, py, plate_w, plate_h)
         self._name.setGeometry(px + 6, py + 4, plate_w - 12, 30)
+        self._status_overlay.setGeometry(0, 0, W, H)
+        self._status_overlay.raise_()
+        self._dynamic_plate.raise_()
+        self._name.raise_()
+        for b in self._buttons:
+            b.raise_()
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -3051,7 +3303,9 @@ class TargetCenterPanel(QWidget):
         W, H = self.width(), self.height()
         p.fillRect(self.rect(), qcol(C.BG))
 
-        if not self._bg.isNull():
+        # The MP4s replace the static scene completely. Keep the PNG as a
+        # fallback when Qt Multimedia is unavailable or either video is missing.
+        if not self._media_ready and not self._bg.isNull():
             if self._bg_key != (W, H):
                 sx = W / self._REF_W
                 sy = H / self._REF_H
@@ -3069,19 +3323,6 @@ class TargetCenterPanel(QWidget):
                 y = (H - self._bg_cache.height()) // 2
                 p.drawPixmap(x, y, self._bg_cache)
 
-        p.fillRect(self.rect(), qcol("#00060a", 28))
-
-        # Subtle live audio halo around the character while audio is active.
-        if self._amp > 0.02:
-            cx, cy = W * 0.52, H * 0.53
-            r = min(W, H) * (0.14 + self._amp * 0.04)
-            a = int(20 + min(85, self._amp * 90))
-            p.setPen(QPen(qcol(C.PRI, a), 2))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawEllipse(QRectF(cx-r, cy-r, 2*r, 2*r))
-
-        # Replace the baked-in status with a live visual indicator.
-        self._paint_status_visual(p, W, H)
         p.end()
 
 
@@ -4788,8 +5029,18 @@ class MainWindow(QMainWindow):
             threading.Thread(target=self.on_text_command, args=(txt,), daemon=True).start()
 
     def _apply_state(self, state: str):
-        self.hud.state    = state
-        self.hud.speaking = (state == "SPEAKING")
+        # TargetCenterPanel owns the avatar video state machine. Calling
+        # set_state() is essential: directly mutating .state/.speaking updates
+        # the status visuals but bypasses the MP4 switch logic.
+        try:
+            if hasattr(self.hud, "set_state"):
+                self.hud.set_state(state)
+            else:
+                self.hud.state = state
+                self.hud.speaking = (state == "SPEAKING")
+        except Exception:
+            self.hud.state = state
+            self.hud.speaking = (state == "SPEAKING")
         if hasattr(self, "_left_state_lbl"):
             self._left_state_lbl.setText(state)
             col = C.MUTED_C if state == "MUTED" else (C.ACC if state == "SPEAKING" else (C.ACC2 if state in ("THINKING", "PROCESSING") else C.GREEN))
