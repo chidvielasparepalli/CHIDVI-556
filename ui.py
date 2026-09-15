@@ -25,7 +25,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import (
     QBrush, QColor, QConicalGradient, QDragEnterEvent, QDropEvent, QFont,
     QFontDatabase, QKeySequence, QLinearGradient, QPainter, QPainterPath,
-    QPen, QPixmap, QRadialGradient, QShortcut,
+    QPen, QPixmap, QImage, QRadialGradient, QShortcut,
 )
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -35,8 +35,7 @@ from PyQt6.QtWidgets import (
 
 # Optional Qt Multimedia support for the animated avatar.
 try:
-    from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
-    from PyQt6.QtMultimediaWidgets import QVideoWidget
+    from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
     _MULTIMEDIA = True
 except ImportError:
     _MULTIMEDIA = False
@@ -2853,6 +2852,59 @@ class _AvatarStatusOverlay(QWidget):
         p.end()
 
 
+class _AvatarVideoWidget(QWidget):
+    """Paints decoded video frames inside a normal QWidget.
+
+    QVideoWidget can become a native window on Windows, which lets the video
+    paint over sibling widgets such as Plugins/Remote Control. QVideoSink keeps
+    the frames inside this widget, so the avatar is strictly clipped to the
+    center panel.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+        self.setAutoFillBackground(False)
+        self._image = QImage()
+        self._sink = QVideoSink(self)
+        self._sink.videoFrameChanged.connect(self._on_frame)
+
+    @property
+    def sink(self):
+        return self._sink
+
+    def _on_frame(self, frame):
+        try:
+            image = frame.toImage()
+            if image.isNull():
+                return
+            self._image = image.convertToFormat(QImage.Format.Format_RGBA8888)
+            self.update()
+        except Exception:
+            pass
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        if not p.isActive():
+            return
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        p.fillRect(self.rect(), qcol(C.BG))
+        if self._image.isNull():
+            p.end()
+            return
+
+        target = self.rect()
+        scaled = self._image.scaled(
+            target.size(),
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        x = max(0, (scaled.width() - target.width()) // 2)
+        y = max(0, (scaled.height() - target.height()) // 2)
+        crop = scaled.copy(x, y, target.width(), target.height())
+        p.drawImage(0, 0, crop)
+        p.end()
+
+
 class TargetCenterPanel(QWidget):
     """Reference-style cinematic home panel with an instant idle/talking avatar swap."""
     _REF_W, _REF_H = 956, 656
@@ -2999,12 +3051,11 @@ class TargetCenterPanel(QWidget):
             self._video_stack.setObjectName("AvatarVideoStack")
             self._video_stack.setStyleSheet("background: transparent; border: none;")
 
-            self._idle_video = QVideoWidget(self._video_stack)
-            self._start_talk_video = QVideoWidget(self._video_stack)
-            self._continuous_talk_video = QVideoWidget(self._video_stack)
+            self._idle_video = _AvatarVideoWidget(self._video_stack)
+            self._start_talk_video = _AvatarVideoWidget(self._video_stack)
+            self._continuous_talk_video = _AvatarVideoWidget(self._video_stack)
             for video in (self._idle_video, self._start_talk_video, self._continuous_talk_video):
                 video.setStyleSheet("background: transparent;")
-                video.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatioByExpanding)
                 self._video_stack.addWidget(video)
             self._video_stack.setCurrentIndex(0)
 
@@ -3022,9 +3073,9 @@ class TargetCenterPanel(QWidget):
             self._start_talk_player.setAudioOutput(self._start_talk_audio)
             self._continuous_talk_player.setAudioOutput(self._continuous_talk_audio)
 
-            self._idle_player.setVideoOutput(self._idle_video)
-            self._start_talk_player.setVideoOutput(self._start_talk_video)
-            self._continuous_talk_player.setVideoOutput(self._continuous_talk_video)
+            self._idle_player.setVideoSink(self._idle_video.sink)
+            self._start_talk_player.setVideoSink(self._start_talk_video.sink)
+            self._continuous_talk_player.setVideoSink(self._continuous_talk_video.sink)
 
             self._idle_player.setSource(QUrl.fromLocalFile(str(idle_path.resolve())))
             self._start_talk_player.setSource(QUrl.fromLocalFile(str(start_path.resolve())))
