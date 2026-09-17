@@ -1,65 +1,3 @@
-
-"""Memory-aware autonomous form agent prototype for CHIDVI-556.
-
-Uses screenshots + Gemini vision with explicit user questions for missing data.
-This module is intentionally separate from the legacy form_agent until browser
-integration is verified.
-"""
-from __future__ import annotations
-import base64, json, time, webbrowser
-from pathlib import Path
-try:
-    import pyautogui
-except ImportError:
-    pyautogui = None
-from google import genai
-from google.genai import types
-try:
-    from memory.memory_manager import search_memory, update_memory
-except Exception:
-    search_memory = update_memory = None
-
-PLUGIN = {"name":"form_agent_v2","description":"Open a web form, inspect it visually, fill confidently known fields from long-term memory, ask for missing information, remember reusable answers, and verify completion.","parameters":{"type":"OBJECT","properties":{"action":{"type":"STRING","description":"start, status, answer, or stop"},"url":{"type":"STRING"},"answer":{"type":"STRING"}},"required":["action"]}}
-
-_state={"running":False,"url":"","waiting_for":None,"history":[]}
-BASE_DIR=Path(__file__).resolve().parents[1]
-
-def _key():
-    data=json.loads((BASE_DIR/"config"/"api_keys.json").read_text())
-    return data.get("gemini_api_key") or data.get("GEMINI_API_KEY")
-
-def _narrate(text, player=None):
-    if player and hasattr(player,"write_log"):
-        try: player.write_log(text)
-        except Exception: pass
-    print(text)
-
-def run(parameters, player=None, session_memory=None):
-    action=(parameters.get("action") or "").lower()
-    if action=="status": return json.dumps(_state)
-    if action=="stop": _state.update(running=False,waiting_for=None); return "Form agent stopped."
-    if action=="answer":
-        if not _state["waiting_for"]: return "I am not waiting for a form answer."
-        answer=str(parameters.get("answer") or "").strip()
-        if not answer: return "Please provide the requested answer."
-        field=_state["waiting_for"]
-        if update_memory:
-            try: update_memory({"preferences": {f"form_{field}": answer}})
-            except Exception: pass
-        _state["history"].append({"field":field,"answer":"[stored]"})
-        _state["waiting_for"]=None
-        return f"Saved your answer for {field}. I can continue the form."
-    if action!="start": return "Use start, status, answer, or stop."
-    url=str(parameters.get("url") or "").strip()
-    if not url: return "I need the form URL."
-    if pyautogui is None: return "pyautogui is required for form interaction."
-    _state.update(running=True,url=url,waiting_for=None,history=[])
-    _narrate(f"Opening the form now: {url}",player)
-    webbrowser.open(url)
-    time.sleep(2)
-    _narrate("I am inspecting the form and checking my long-term memory for fields I can fill confidently.",player)
-    return "Form opened. Use the agent loop to continue visual inspection and filling."
-=======
 """Memory-aware autonomous form agent prototype for CHIDVI-556."""
 from __future__ import annotations
 import io,json,re,threading,time,webbrowser
@@ -86,17 +24,23 @@ def _decide(img):
     from google import genai
     from google.genai import types
     if not _key(): return {'action':'ASK','text':'I need the Gemini API key to inspect the form.'}
-    p=f'''You are CHIDVI's browser execution agent.
+    prompt=f'''You are CHIDVI's browser execution agent.
 TASK: {STATE['task']}
 URL: {STATE['url'] or '(current page)'}
 LONG-TERM MEMORY:\n{_mem()}
 RECENT ACTIONS:\n{chr(10).join(STATE['log'][-8:]) or '(none)'}
 
-Inspect the screenshot and return ONLY JSON for ONE action: CLICK x,y,reason; TYPE text,reason; KEY key,reason; SCROLL dir,reason; WAIT ms,reason; ASK text,field; DONE. Use memory only for an exact/clear match. Never invent personal facts. If required info is missing or ambiguous, ASK. For payment, legal/government, purchases, or job/college applications, ASK for confirmation immediately before final submission.'''
+Inspect the screenshot and return ONLY JSON for ONE action: CLICK x,y,reason; TYPE text,reason; KEY key,reason; SCROLL dir,reason; WAIT ms,reason; ASK text,reason; DONE. Use memory only for an exact/clear match. Never invent personal facts. If required info is missing or ambiguous, ASK. For payment, legal/government, purchases, or job/college applications, ASK for confirmation immediately before final submission.'''
     try:
-        r=genai.Client(api_key=_key()).models.generate_content(model='gemini-flash-latest',contents=[types.Part.from_bytes(data=img,mime_type='image/png'),p])
+        r=genai.Client(api_key=_key()).models.generate_content(model='gemini-flash-latest',contents=[types.Part.from_bytes(data=img,mime_type='image/png'),prompt])
         return json.loads(re.sub(r'^```(?:json)?|```$','',(r.text or '').strip(),flags=re.M).strip())
     except Exception as e: return {'action':'ASK','text':f'I could not reliably inspect the page: {e}'}
+
+def _say(player,text):
+    if player:
+        try: player.write_log('AGENT: '+text)
+        except: pass
+    print('[FORM_AGENT]',text)
 
 def _act(d):
     a=str(d.get('action','')).upper(); reason=str(d.get('reason','')).strip()
@@ -104,7 +48,7 @@ def _act(d):
         if a=='CLICK': pyautogui.click(int(d['x']),int(d['y']));time.sleep(.5);return reason or 'Clicked the target.'
         if a=='TYPE': pyautogui.write(str(d.get('text','')));time.sleep(.35);return reason or 'Entered the value.'
         if a=='KEY': k=str(d.get('key','tab'));pyautogui.press(k);time.sleep(.35);return reason or f'Pressed {k}.'
-        if a=='SCROLL': dr=d.get('dir','down');pyautogui.scroll(3 if dr=='up' else -3);time.sleep(.5);return reason or f'Scrolled {dr}.'
+        if a=='SCROLL': dr=str(d.get('dir','down'));pyautogui.scroll(3 if dr=='up' else -3);time.sleep(.5);return reason or f'Scrolled {dr}.'
         if a=='WAIT': time.sleep(max(.1,min(10,int(d.get('ms',1000))/1000)));return reason or 'Waiting for the page.'
         if a=='ASK': return 'ASK:'+str(d.get('text','I need more information.'))
         if a=='DONE': return 'DONE'
@@ -115,7 +59,7 @@ def run(parameters:dict,player=None,session_memory=None):
     a=str(parameters.get('action','start')).lower().strip()
     if a=='start':
         if STATE['running']: return 'The form agent is already working.'
-        if pyautogui is None: return "Sir, pyautogui isn't installed."
+        if pyautogui is None: return "pyautogui isn't installed."
         STATE.update(running=True,task=str(parameters.get('task','complete the requested form')),url=str(parameters.get('url','')),log=[],reply=None)
         if STATE['url']: webbrowser.open(STATE['url'],new=2)
         threading.Thread(target=_loop,args=(player,),daemon=True).start()
@@ -144,11 +88,5 @@ def _loop(player):
             STATE['log'].append(r);_say(player,r)
     except Exception as e: _say(player,f'The form agent stopped safely because of an error: {e}')
     finally: STATE['running']=False;STATE['reply']=None
-
-def _say(player,text):
-    if player:
-        try: player.write_log('AGENT: '+text)
-        except: pass
-    print('[FORM_AGENT]',text)
 
 PLUGIN={'name':'form_agent_v2','description':'Memory-aware autonomous form filling with URL opening, screen inspection, narration, user questions, answer persistence, and resume.','parameters':{'type':'OBJECT','properties':{'action':{'type':'STRING'},'url':{'type':'STRING'},'task':{'type':'STRING'},'text':{'type':'STRING'}},'required':[]}}
