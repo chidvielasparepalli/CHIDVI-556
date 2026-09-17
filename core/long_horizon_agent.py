@@ -25,6 +25,7 @@ class LongHorizonAgent:
         self.logger = logger
         self.history: list[dict[str, Any]] = []
         self.registry: ActionRegistry = discover_actions(base_dir / "actions", logger=logger)
+        # The orchestrator must never recursively select itself as a tool.
         self.registry._actions.pop("autonomous_task", None)
         self.client = genai.Client(api_key=self._api_key())
 
@@ -117,7 +118,7 @@ When verified complete, return:
                                      "output": "Unknown tool."})
                 continue
 
-            self.logger(f"[Autonomy {step}/{self.max_steps}] {decision.get('reason', 'Executing next action.')}")
+            self.logger(f"[Autonomy {step}/{self.max_steps}] {decision.get('reason', 'Executing next action.')}" )
             output = self.registry.run(name, args, self.context)
             text = str(output)
             ok = not text.startswith("Tool '") and not text.endswith("is not available.")

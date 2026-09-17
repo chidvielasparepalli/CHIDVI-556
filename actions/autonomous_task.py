@@ -43,13 +43,17 @@ def run(parameters: dict, **ctx) -> str:
         text = str(message)
         speaker = ctx.get("speak")
         if callable(speaker):
-            try: speaker(text)
-            except Exception: pass
+            try:
+                speaker(text)
+            except Exception:
+                pass
         player = ctx.get("player")
         writer = getattr(player, "write_log", None)
         if callable(writer):
-            try: writer(text)
-            except Exception: pass
+            try:
+                writer(text)
+            except Exception:
+                pass
         print(text)
 
     agent = LongHorizonAgent(base_dir=BASE_DIR, context=ctx, max_steps=max_steps, logger=log)

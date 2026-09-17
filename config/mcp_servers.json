@@ -3,7 +3,13 @@
   "autonomous_mode": {
     "enabled": true,
     "max_steps": 12,
-    "require_confirmation_for": ["merge_pull_request", "delete_file", "send_message", "publish", "deploy_production"]
+    "require_confirmation_for": [
+      "merge_pull_request",
+      "delete_file",
+      "send_message",
+      "publish",
+      "deploy_production"
+    ]
   },
   "servers": {
     "github": {"enabled": true, "transport": "mcp"},
