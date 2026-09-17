@@ -1,3 +1,10 @@
+
+# Memory-aware form agent
+
+Desired workflow: open a supplied URL, inspect the form, match fields to CHIDVI long-term memory, fill only facts that are confidently known, ask for missing or ambiguous information, remember user-provided reusable answers, continue, and verify completion.
+
+Do not invent personal data. Do not bypass CAPTCHA, OTP, MFA, passwords, or access controls. Require confirmation before high-consequence final submission such as payment, legal/government, purchases, employment, college applications, or similar irreversible actions.
+=======
 # CHIDVI-556 Memory-Aware Form Agent
 
 The form agent should treat the existing CHIDVI long-term memory system as its source of known user facts rather than creating a second memory database.
@@ -16,3 +23,4 @@ The form agent should treat the existing CHIDVI long-term memory system as its s
 10. Request confirmation immediately before high-consequence final submission (payment, legal/government, purchases, job/college applications).
 
 The agent must never invent personal facts or bypass CAPTCHA, OTP, MFA, passwords, or access controls.
+
