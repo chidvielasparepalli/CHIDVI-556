@@ -1,60 +1,3 @@
-
-"""Gemini image generation action with narration while the request is running."""
-from __future__ import annotations
-import base64, json, threading, time
-from pathlib import Path
-from google import genai
-from google.genai import types
-BASE_DIR=Path(__file__).resolve().parents[1]
-OUT_DIR=BASE_DIR/"generated_images"
-
-def _key():
-    data=json.loads((BASE_DIR/"config"/"api_keys.json").read_text(encoding="utf-8"))
-    return data.get("gemini_api_key") or data.get("GEMINI_API_KEY")
-
-def _say(text, player=None, speak=None):
-    if speak:
-        try: speak(text)
-        except Exception: pass
-    if player and hasattr(player,"write_log"):
-        try: player.write_log(text)
-        except Exception: pass
-    print(text)
-
-def run(parameters:dict, player=None, speak=None, **kwargs)->str:
-    prompt=str(parameters.get("prompt") or "").strip()
-    if not prompt: return "I need an image prompt."
-    ratio=str(parameters.get("aspect_ratio") or "1:1")
-    size=str(parameters.get("image_size") or "1K")
-    OUT_DIR.mkdir(parents=True,exist_ok=True)
-    stamp=time.strftime("%Y%m%d_%H%M%S")
-    path=OUT_DIR/f"image_{stamp}.png"
-    _say(f"Absolutely. I'm creating that image now in {ratio} format.",player,speak)
-    _say("I'm sending the visual brief to the image generator. I'll keep you updated while it renders.",player,speak)
-    stop=threading.Event()
-    def progress():
-        messages=["The image is rendering now.","I'm still working on the generation — keeping an eye on the result.","The render is still in progress; I'll let you know as soon as it's ready."]
-        i=0
-        while not stop.wait(7):
-            _say(messages[i%len(messages)],player,speak); i+=1
-    t=threading.Thread(target=progress,daemon=True); t.start()
-    try:
-        client=genai.Client(api_key=_key())
-        response=client.models.generate_content(model="gemini-2.5-flash-image",contents=prompt,config=types.GenerateContentConfig(response_modalities=["TEXT","IMAGE"]))
-        for part in response.candidates[0].content.parts:
-            if getattr(part,"inline_data",None):
-                data=part.inline_data.data
-                if isinstance(data,str): data=base64.b64decode(data)
-                path.write_bytes(data); break
-        if not path.exists(): return "The image model returned no image data."
-        _say(f"The image is finished. I'm saving it now as {path.name}.",player,speak)
-        _say("Done. Your image is ready.",player,speak)
-        return f"Image generated successfully: {path}"
-    finally:
-        stop.set()
-
-TOOL={"name":"create_image","description":"Generate an image from a prompt with narrated progress and save it locally.","parameters":{"type":"OBJECT","properties":{"prompt":{"type":"STRING"},"aspect_ratio":{"type":"STRING"},"image_size":{"type":"STRING"}},"required":["prompt"]},"handler":run}
-=======
 """CHIDVI image generation action powered by Gemini with live narration."""
 from __future__ import annotations
 import base64, json, os, sys, threading, time
@@ -70,8 +13,9 @@ MODEL = "gemini-3.1-flash-image"
 
 def _api_key() -> str:
     with API_CONFIG_PATH.open("r", encoding="utf-8") as f:
-        key = json.load(f).get("gemini_api_key")
-    if not key: raise ValueError("gemini_api_key is missing from config/api_keys.json.")
+        data = json.load(f)
+    key = data.get("gemini_api_key") or data.get("GEMINI_API_KEY")
+    if not key: raise ValueError("Gemini API key is missing from config/api_keys.json.")
     return key
 
 def _safe_filename(filename: str = "") -> str:
@@ -112,35 +56,24 @@ def _say(speak, player, text: str) -> None:
 def create_image(prompt: str = "", filename: str = "", aspect_ratio: str = "1:1", image_size: str = "1K", open_after: bool = True, player=None, speak=None, **_kwargs) -> str:
     prompt = (prompt or "").strip()
     if not prompt: return "Please describe the image you want me to create."
-    if aspect_ratio not in {"1:1","3:2","2:3","3:4","4:3","4:5","5:4","9:16","16:9","21:9"}: aspect_ratio = "1:1"
+    valid_ratios = {"1:1","3:2","2:3","3:4","4:3","4:5","5:4","9:16","16:9","21:9"}
+    if aspect_ratio not in valid_ratios: aspect_ratio = "1:1"
     if image_size not in {"512","1K","2K","4K"}: image_size = "1K"
     _say(speak, player, f"I'm creating the image now: {prompt[:100]}.")
     stop = threading.Event()
     def narrate():
-        updates = [
-            "I've started the image generation. I'm waiting for the render to finish.",
-            "The image is still rendering. I'm keeping an eye on the generation.",
-            "The render is taking a little longer, but it's still in progress.",
-        ]
+        updates = ["I've started the image generation. I'm waiting for the render to finish.","The image is still rendering. I'm keeping an eye on the generation.","The render is taking a little longer, but it's still in progress."]
         i = 0
         while not stop.wait(6):
-            _say(speak, player, updates[min(i, len(updates)-1)])
-            i += 1
-    thread = threading.Thread(target=narrate, daemon=True)
-    thread.start()
+            _say(speak, player, updates[min(i, len(updates)-1)]); i += 1
+    thread = threading.Thread(target=narrate, daemon=True); thread.start()
     try:
         from google import genai
         client = genai.Client(api_key=_api_key())
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=prompt,
-            config={"response_modalities": ["TEXT", "IMAGE"], "image_config": {"aspect_ratio": aspect_ratio, "image_size": image_size}},
-        )
+        response = client.models.generate_content(model=MODEL, contents=prompt, config={"response_modalities":["TEXT","IMAGE"],"image_config":{"aspect_ratio":aspect_ratio,"image_size":image_size}})
         part = _extract_image(response)
         if part is None:
-            msg = f"Gemini did not return an image. {(getattr(response, 'text', '') or '')[:500]}".strip()
-            _say(speak, player, msg)
-            return msg
+            msg = f"Gemini did not return an image. {(getattr(response, 'text', '') or '')[:500]}".strip(); _say(speak, player, msg); return msg
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         path = OUTPUT_DIR / _safe_filename(filename)
         _save_part(part, path)
@@ -149,20 +82,7 @@ def create_image(prompt: str = "", filename: str = "", aspect_ratio: str = "1:1"
         _say(speak, player, "The image is finished. I've saved it and opened the result for you." if open_after else "The image is finished and saved.")
         return msg
     except Exception as exc:
-        error = f"Image generation failed: {exc}"
-        _say(speak, player, error)
-        return error
-    finally:
-        stop.set()
+        error = f"Image generation failed: {exc}"; _say(speak, player, error); return error
+    finally: stop.set()
 
-TOOL = {
-    "name": "create_image",
-    "description": "Generate an image from a natural-language prompt using Gemini, save it locally, optionally open it, and narrate progress while rendering.",
-    "parameters": {"type":"OBJECT","properties":{
-        "prompt":{"type":"STRING","description":"Detailed description of the image to create."},
-        "filename":{"type":"STRING","description":"Optional output filename."},
-        "aspect_ratio":{"type":"STRING","description":"Aspect ratio such as 1:1, 16:9, or 9:16."},
-        "image_size":{"type":"STRING","description":"Resolution: 512, 1K, 2K, or 4K."},
-        "open_after":{"type":"BOOLEAN","description":"Open the generated image after saving."}},"required":["prompt"]},
-    "handler": create_image,
-}
+TOOL = {"name":"create_image","description":"Generate an image from a natural-language prompt using Gemini, save it locally, optionally open it, and narrate progress while rendering.","parameters":{"type":"OBJECT","properties":{"prompt":{"type":"STRING","description":"Detailed description of the image to create."},"filename":{"type":"STRING","description":"Optional output filename."},"aspect_ratio":{"type":"STRING","description":"Aspect ratio such as 1:1, 16:9, or 9:16."},"image_size":{"type":"STRING","description":"Resolution: 512, 1K, 2K, or 4K."},"open_after":{"type":"BOOLEAN","description":"Open the generated image after saving."}},"required":["prompt"]},"handler":create_image}
