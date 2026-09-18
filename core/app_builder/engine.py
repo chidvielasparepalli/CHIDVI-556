@@ -509,12 +509,23 @@ Fix only the root cause. Do not change unrelated files.
                 return {"ok": False, "message": log_path.read_text(encoding="utf-8", errors="replace")[-6000:]}
 
             with sync_playwright() as pw:
-                browser = pw.chromium.launch(headless=True)
+                try:
+                    browser = pw.chromium.launch(headless=True)
+                except Exception:
+                    self._event(project_dir, "Playwright is installed but Chromium is missing. I’m installing the browser dependency once so I can verify the real UI.", state)
+                    code, install_output = _run(
+                        [os.sys.executable, "-m", "playwright", "install", "chromium"],
+                        self.base_dir,
+                        300,
+                    )
+                    if code != 0:
+                        return {"ok": False, "message": f"Chromium installation failed: {install_output[-4000:]}"}
+                    browser = pw.chromium.launch(headless=True)
                 page = browser.new_page(viewport={"width": 1440, "height": 900}, device_scale_factor=1)
                 console_errors: list[str] = []
                 page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
                 page.on("pageerror", lambda exc: console_errors.append(str(exc)))
-                page.goto(url, wait_until="networkidle", timeout=30000)
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 screenshot_path = chidvi_dir / "preview.png"
                 page.screenshot(path=str(screenshot_path), full_page=True)
                 body_text = page.locator("body").inner_text(timeout=10000)
