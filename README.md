@@ -385,3 +385,75 @@ Some components are production-like utilities, while others are experimental pro
 ## ⚡ CHIDVI-556
 
 **A persistent AI command center evolving toward autonomous, tool-using, memory-aware intelligence.**
+
+
+---
+
+## 🏗️ Autonomous App Builder
+
+CHIDVI-556 now includes an **App Builder** action that turns a natural-language product idea into a real full-stack web project.
+
+Example:
+
+> "Build a SaaS dashboard for AI resume analysis with authentication, uploads, analytics, and a responsive premium UI."
+
+The builder follows:
+
+```text
+Idea
+ ↓
+Understand requirements
+ ↓
+Ask blocking questions / credentials
+ ↓
+Plan architecture + design system
+ ↓
+Generate project files
+ ↓
+Install dependencies
+ ↓
+Build
+ ↓
+Open in browser
+ ↓
+Inspect UI + console errors
+ ↓
+Repair bounded failures
+ ↓
+Verify
+ ↓
+Deliver
+```
+
+### What it does
+
+- Generates a dedicated project outside the CHIDVI repository.
+- Starts with a structured architecture and design plan.
+- Asks for missing information instead of guessing.
+- Handles credentials through the generated project's local `.env.local`.
+- Narrates meaningful progress through the existing CHIDVI voice/log pipeline.
+- Generates Next.js + TypeScript projects by default.
+- Runs `npm install` and `npm run build`.
+- Uses Playwright to open the real application.
+- Captures a real browser screenshot and checks console/page errors.
+- Uses a bounded repair loop instead of claiming success after a failed build.
+- Persists builder state under the generated project's `.chidvi/` directory so interrupted work can be resumed.
+- Intentionally pushes generated UI away from generic AI boilerplate and toward a product-specific design system.
+
+### Tool
+
+The auto-discovered action is:
+
+`app_builder`
+
+Supported actions:
+
+```text
+start   → create a new application
+resume  → continue after a blocking user answer
+status  → inspect an existing builder task
+cancel  → stop a builder task
+```
+
+If Playwright's Chromium binary is missing, the builder attempts a one-time local `playwright install chromium` bootstrap before verification.
+
