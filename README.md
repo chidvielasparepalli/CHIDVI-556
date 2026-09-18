@@ -455,5 +455,5 @@ status  → inspect an existing builder task
 cancel  → stop a builder task
 ```
 
-Playwright must have its Chromium browser installed on the local machine before browser verification can run.
+If Playwright's Chromium binary is missing, the builder attempts a one-time local `playwright install chromium` bootstrap before verification.
 
