@@ -303,6 +303,7 @@ Rules:
             "project_dir": str(project_dir),
             "plan": plan,
             "answers": {},
+            "provided_secrets": [],
             "pending_question": None,
             "repair_attempts": 0,
             "events": [],
@@ -342,7 +343,11 @@ Rules:
             return BuilderResult(False, "WAITING_FOR_USER", "I still need the requested information.", str(project_dir), {"question": pending})
 
         if pending.get("kind") == "secret":
-            self._write_env(project_dir, str(pending.get("name") or pending.get("id") or "CHIDVI_SECRET").upper(), answer)
+            secret_name = str(pending.get("name") or pending.get("id") or "CHIDVI_SECRET").upper()
+            self._write_env(project_dir, secret_name, answer)
+            state.setdefault("provided_secrets", [])
+            if secret_name not in state["provided_secrets"]:
+                state["provided_secrets"].append(secret_name)
             self._event(project_dir, "Thanks. I stored the credential in the generated app’s local environment file and will not echo it back.", state)
         else:
             state.setdefault("answers", {})[str(pending.get("id") or "answer")] = answer
@@ -358,6 +363,20 @@ Rules:
             state["status"] = "WAITING_FOR_USER"
             self._save_state(project_dir, state)
             return BuilderResult(True, "WAITING_FOR_USER", questions[0].get("question", "I need one more decision."), str(project_dir), {"question": questions[0]})
+
+        provided = set(state.get("provided_secrets") or [])
+        secrets = [
+            x for x in (state["plan"].get("required_secrets") or [])
+            if x.get("secret") and str(x.get("name") or "").upper() not in provided
+        ]
+        if secrets:
+            pending = {"id": f"secret_{len(provided)}", **secrets[0], "kind": "secret", "blocking": True}
+            state["pending_question"] = pending
+            state["status"] = "WAITING_FOR_USER"
+            self._save_state(project_dir, state)
+            message = f"I need {pending['name']} before I can wire the requested integration. I’ll keep it out of the builder state."
+            self._event(project_dir, message, state)
+            return BuilderResult(True, "WAITING_FOR_USER", message, str(project_dir), {"question": pending})
         return self._continue(project_dir, state)
 
     def status(self, project_dir: Path) -> BuilderResult:
