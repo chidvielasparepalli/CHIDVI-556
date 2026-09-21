@@ -9,6 +9,7 @@ speechbrain
 torch
 torchaudio
 soundfile
+faster-whisper
 
 # ── Web search & browser control ──────────────────────────────────────────────
 requests
