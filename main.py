@@ -125,6 +125,38 @@ def _get_api_key() -> str:
         return json.load(f)["gemini_api_key"]
 
 
+def _speak_voice_auth_rejection(text: str) -> None:
+    """Speak the biometric rejection locally without sending the request to Gemini."""
+    try:
+        if _platform.system() == "Windows":
+            import win32com.client
+            speaker = win32com.client.Dispatch("SAPI.SpVoice")
+            speaker.Speak(text)
+            return
+    except Exception as exc:
+        print(f"[VoiceAuth] Local TTS failed: {exc}")
+    print(f"[VoiceAuth] {text}")
+
+
+def _ensure_voice_profile(ui: JarvisUI) -> VoiceAuthService:
+    """One-time owner enrollment. Samples are captured from the app microphone."""
+    config = VoiceAuthConfig.from_env()
+    if not config.embedding_path.exists():
+        ui.write_log("SYS: Voice authorization setup required — record five samples.")
+        samples = record_owner_samples(
+            ui._app,
+            sample_rate=config.sample_rate,
+            seconds=4.0,
+            count=config.enroll_samples,
+            device=audio_devices.resolve(get_input_device(), "input"),
+        )
+        service = VoiceAuthService(config)
+        service.enroll(samples, config.sample_rate)
+        ui.write_log("SYS: Owner voice profile enrolled.")
+    else:
+        ui.write_log("SYS: Owner voice profile loaded.")
+    return VoiceAuthService(config)
+
 def _load_system_prompt() -> str:
     try:
         return PROMPT_PATH.read_text(encoding="utf-8")
