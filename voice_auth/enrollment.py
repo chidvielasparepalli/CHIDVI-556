@@ -20,7 +20,7 @@ def record_owner_samples(
     Enrollment is requested by the background startup thread, so dialog creation
     is marshalled to MainWindow's Qt signal before waiting for completion.
     """
-        from PyQt6.QtWidgets import QDialog, QLabel, QPushButton, QVBoxLayout
+    from PyQt6.QtWidgets import QDialog, QLabel, QPushButton, QVBoxLayout
 
     done = threading.Event()
     result: dict[str, object] = {"samples": None, "error": None}
