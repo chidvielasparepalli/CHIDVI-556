@@ -29,10 +29,11 @@ class VoiceGateState:
 class VoiceAuthGate:
     """Utterance-level gate. Audio is verified locally before it reaches Gemini."""
 
-    def __init__(self, service: VoiceAuthService, speak_rejection):
+    def __init__(self, service: VoiceAuthService, speak_rejection, loop):
         self.service = service
         self.state = VoiceGateState()
         self._speak_rejection = speak_rejection
+        self._loop = loop
         self._buffer = bytearray()
         self._speaking = False
         self._silence_seconds = 0.0
@@ -66,8 +67,8 @@ class VoiceAuthGate:
                 self._buffer.clear()
                 self._speaking = False
                 self._silence_seconds = 0.0
-                asyncio.get_running_loop().create_task(
-                    self._finish_utterance(utterance)
+                self._loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(self._finish_utterance(utterance))
                 )
 
         # Prevent an idle mic from growing the buffer forever.
