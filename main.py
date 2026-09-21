@@ -73,6 +73,10 @@ from memory.config_manager     import (
 )
 from core.plugin_loader        import discover_plugins
 from core                      import undo as undo_stack
+from voice_auth.config         import VoiceAuthConfig
+from voice_auth.enrollment     import record_owner_samples
+from voice_auth.service        import VoiceAuthService
+from voice_auth.gate            import VoiceAuthGate, ALLOW_RE
 from core                      import confirm as confirm_gate
 from core                      import audio_devices
 from core.action_loader        import discover_actions
