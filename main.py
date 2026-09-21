@@ -356,8 +356,10 @@ def _keep_context_of(exc: BaseException) -> bool:
 
 
 class JarvisLive:
-    def __init__(self, ui: JarvisUI):
+    def __init__(self, ui: JarvisUI, voice_service: VoiceAuthService | None = None):
         self.ui             = ui
+        self._voice_service  = voice_service
+        self._voice_gate     = None
         self._asst_name     = "JARVI    S"   # updated each session from config
         self.session              = None
         self.audio_in_queue       = None
@@ -911,6 +913,13 @@ class JarvisLive:
             response={"result": result}
         )
 
+    async def _send_authenticated_audio(self, pcm_bytes: bytes):
+        if not self.session:
+            return
+        await self.session.send_realtime_input(
+            audio=types.Blob(data=pcm_bytes, mime_type="audio/pcm")
+        )
+
     async def _send_realtime(self):
         while True:
             msg = await self.out_queue.get()
@@ -947,15 +956,16 @@ class JarvisLive:
                 jarvis_speaking = self._is_speaking
             if not jarvis_speaking and not self.ui.muted and not self._phone_active:
                 data = indata.tobytes()
-                loop.call_soon_threadsafe(
-                    self.out_queue.put_nowait,
-                    {"data": data, "mime_type": "audio/pcm"}
-                )
-                # Feed the live mic level to the HUD so the waveform reacts to
-                # the user's actual voice while listening. Purely cosmetic — any
-                # failure here must never disturb the mic.
+                level = _pcm_level(indata)
+                if self._voice_gate is not None:
+                    self._voice_gate.add_pcm(data, level, frames / SEND_SAMPLE_RATE)
+                else:
+                    loop.call_soon_threadsafe(
+                        self.out_queue.put_nowait,
+                        {"data": data, "mime_type": "audio/pcm"}
+                    )
                 try:
-                    self.ui.set_audio_level(_pcm_level(indata), "mic")
+                    self.ui.set_audio_level(level, "mic")
                 except Exception:
                     pass
 
@@ -1050,6 +1060,9 @@ class JarvisLive:
                                 self._last_user_speech = time.monotonic()
                                 if any(k in txt.lower() for k in _STOP_WORDS):
                                     self._game_stop.set()
+                                if self._voice_gate is not None and ALLOW_RE.search(txt):
+                                    self._voice_gate.state.open_for_everyone = True
+                                    self.ui.write_log("SYS: Voice authorization override — answering everyone.")
 
                         if sc.turn_complete:
                             if self._turn_done_event:
@@ -1531,6 +1544,10 @@ class JarvisLive:
 
     async def run(self):
         self._loop = asyncio.get_event_loop()
+        if self._voice_service is None:
+            raise RuntimeError("Voice authentication service is not initialized")
+        self._voice_gate = VoiceAuthGate(self._voice_service, _speak_voice_auth_rejection, self._loop)
+        self._voice_gate._send_audio = self._send_authenticated_audio
         self._reconnect_event = asyncio.Event()
 
         # ── Wire the shared core services to the interface ───────────────────
@@ -1597,6 +1614,9 @@ class JarvisLive:
                     self._vision_busy          = False
                     self._vision_last_time     = 0.0
                     self._interrupted          = False
+                    if self._voice_gate is not None:
+                        self._voice_gate.reset()
+                        self._voice_gate._send_audio = self._send_authenticated_audio
 
                     print("[JARVIS] Connected.")
                     if _resumed_with:
@@ -1743,7 +1763,8 @@ def main():
 
     def runner():
         ui.wait_for_api_key()
-        jarvis = JarvisLive(ui)
+        voice_service = _ensure_voice_profile(ui)
+        jarvis = JarvisLive(ui, voice_service)
         try:
             asyncio.run(jarvis.run())
         except KeyboardInterrupt:
