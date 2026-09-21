@@ -13,6 +13,7 @@ def record_owner_samples(
     sample_rate: int = 16000,
     seconds: float = 4.0,
     count: int = 5,
+    device=None,
 ) -> list[np.ndarray]:
     """Show a one-time Qt enrollment dialog and record samples from the selected mic."""
     from PyQt6.QtCore import QTimer
@@ -74,6 +75,7 @@ def record_owner_samples(
                     samplerate=sample_rate,
                     channels=1,
                     dtype="float32",
+                    device=device,
                 )
                 sd.wait()
                 audio = np.asarray(audio, dtype=np.float32).reshape(-1)
