@@ -1099,6 +1099,8 @@ class JarvisLive:
                                     self._game_stop.set()
                                 if self._voice_gate is not None and ALLOW_RE.search(txt):
                                     self._voice_gate.state.open_for_everyone = True
+                                    if self._phone_voice_gate is not None:
+                                        self._phone_voice_gate.state.open_for_everyone = True
                                     self.ui.write_log("SYS: Voice authorization override — answering everyone.")
 
                         if sc.turn_complete:
