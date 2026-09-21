@@ -396,6 +396,7 @@ class JarvisLive:
         self.ui             = ui
         self._voice_service  = voice_service
         self._voice_gate     = None
+        self._phone_voice_gate = None
         self._asst_name     = "JARVI    S"   # updated each session from config
         self.session              = None
         self.audio_in_queue       = None
@@ -1534,10 +1535,17 @@ class JarvisLive:
             with self._speaking_lock:
                 speaking = self._is_speaking
             if not speaking and not self.ui.muted:
-                try:
-                    self.out_queue.put_nowait(chunk)
-                except asyncio.QueueFull:
-                    pass
+                if self._phone_voice_gate is not None:
+                    data = chunk["data"]
+                    level = _pcm_level(np.frombuffer(data, dtype=np.int16))
+                    self._phone_voice_gate.add_pcm(
+                        data, level, len(data) / 2 / SEND_SAMPLE_RATE
+                    )
+                else:
+                    try:
+                        self.out_queue.put_nowait(chunk)
+                    except asyncio.QueueFull:
+                        pass
 
     def _on_phone_connected(self) -> None:
         self.ui.write_log("SYS: Phone connected via Remote Dashboard.")
@@ -1584,6 +1592,8 @@ class JarvisLive:
             raise RuntimeError("Voice authentication service is not initialized")
         self._voice_gate = VoiceAuthGate(self._voice_service, _speak_voice_auth_rejection, self._loop)
         self._voice_gate._send_audio = self._send_authenticated_audio
+        self._phone_voice_gate = VoiceAuthGate(self._voice_service, _speak_voice_auth_rejection, self._loop)
+        self._phone_voice_gate._send_audio = self._send_authenticated_audio
         self._reconnect_event = asyncio.Event()
 
         # ── Wire the shared core services to the interface ───────────────────
@@ -1653,6 +1663,9 @@ class JarvisLive:
                     if self._voice_gate is not None:
                         self._voice_gate.reset()
                         self._voice_gate._send_audio = self._send_authenticated_audio
+                    if self._phone_voice_gate is not None:
+                        self._phone_voice_gate.reset()
+                        self._phone_voice_gate._send_audio = self._send_authenticated_audio
 
                     print("[JARVIS] Connected.")
                     if _resumed_with:
