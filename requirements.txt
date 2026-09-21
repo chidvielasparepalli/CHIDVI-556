@@ -4,6 +4,12 @@ sounddevice
 numpy
 google-genai>=2.8.0
 
+# ── Voice authentication ─────────────────────────────────────────────────────
+speechbrain
+torch
+torchaudio
+soundfile
+
 # ── Web search & browser control ──────────────────────────────────────────────
 requests
 beautifulsoup4
@@ -49,11 +55,7 @@ pywinauto;  sys_platform == "win32"
 pywin32;    sys_platform == "win32"
 wmi;        sys_platform == "win32"
 
-# ── Optional: local wake word (" Arise") ──────────────────────────────────
+# ── Optional: local wake word (" Arise") ──────────────────────────────────────
 # Deliberately NOT installed by default — it's opt-in. Enable it (and download
 # the tiny model) with one click from ⚙ → WAKE WORD in the app, or install it
 # yourself with:  pip install openwakeword
-#
-# macOS / Linux OS actions (volume, brightness, reminders) shell out to native
-# tools (pactl / brightnessctl / osascript / systemd), so no extra Python
-# packages are needed there — nothing Windows-specific is ever pulled in.
