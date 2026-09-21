@@ -3095,7 +3095,7 @@ class TargetCenterPanel(QWidget):
             # Prime the idle clip immediately. The talking clips are loaded but not
             # played until the speech state arrives.
             self._idle_player.play()
-            self._video_stack.raise_()
+            self._video_stack.lower()
         except Exception:
             self._video_stack = None
             self._idle_player = None
@@ -3307,6 +3307,7 @@ class TargetCenterPanel(QWidget):
 
         if self._video_stack is not None:
             self._video_stack.setGeometry(0, 0, W, H)
+            self._video_stack.lower()
 
         sx = W / self._REF_W
         sy = H / self._REF_H
