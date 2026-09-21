@@ -2254,10 +2254,6 @@ class MemoryOverlay(_HudOverlay):
         # got it right: _settle is idempotent.
         QTimer.singleShot(0, lambda g=before: self._settle(g))
 
-    def _run_voice_auth_callback(self, callback):
-        """Run voice enrollment UI creation on the Qt GUI thread."""
-        callback()
-
     def _forget(self, category: str, key: str):
         from memory.memory_manager import forget
         forget(key, category)
@@ -5143,6 +5139,11 @@ class MainWindow(QMainWindow):
         self._apply_state("LISTENING")
         self._assistant_name = _read_full_config().get("assistant_name", "JARVIS") or "JARVIS"
         self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. {self._assistant_name} online.")
+
+
+    def _run_voice_auth_callback(self, callback):
+        """Run voice enrollment UI creation on the Qt GUI thread."""
+        callback()
 
 
 class _RootShim:
