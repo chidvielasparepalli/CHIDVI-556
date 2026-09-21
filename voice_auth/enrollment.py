@@ -26,10 +26,12 @@ def record_owner_samples(
     result: dict[str, object] = {"samples": None, "error": None}
 
     def launch() -> None:
-        dialog = QDialog()
+        dialog = QDialog(ui._win)
         dialog.setWindowTitle("CHIDVI • Voice Authorization")
         dialog.setModal(True)
-        dialog.resize(520, 260)
+        dialog.setWindowModality(__import__("PyQt6.QtCore", fromlist=["Qt"]).Qt.WindowModality.ApplicationModal)
+        dialog.resize(520, 300)
+        dialog.setMinimumSize(520, 300)
 
         title = QLabel("VOICE AUTHORIZATION")
         title.setStyleSheet("font-size:22px;font-weight:700;")
@@ -109,6 +111,10 @@ def record_owner_samples(
             )
         )
         dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        # Keep the enrollment window unmistakably visible above CHIDVI.
+        dialog.exec()
 
     # The startup runner is a background thread and does not own a Qt event loop.
     # Queue the dialog creation onto the existing QApplication event loop.
