@@ -148,7 +148,7 @@ def _ensure_voice_profile(ui: JarvisUI) -> VoiceAuthService:
     if not config.embedding_path.exists():
         ui.write_log("SYS: Voice authorization setup required — record five samples.")
         samples = record_owner_samples(
-            ui._app,
+            ui,
             sample_rate=config.sample_rate,
             seconds=4.0,
             count=config.enroll_samples,
