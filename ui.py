@@ -2254,6 +2254,10 @@ class MemoryOverlay(_HudOverlay):
         # got it right: _settle is idempotent.
         QTimer.singleShot(0, lambda g=before: self._settle(g))
 
+    def _run_voice_auth_callback(self, callback):
+        """Run voice enrollment UI creation on the Qt GUI thread."""
+        callback()
+
     def _forget(self, category: str, key: str):
         from memory.memory_manager import forget
         forget(key, category)
@@ -3390,6 +3394,7 @@ class MainWindow(QMainWindow):
     _confirm_sig    = pyqtSignal(str, str)   # (title, detail) — irreversible-action gate
     _confirm_hide_sig = pyqtSignal()
     _wake_dl_sig    = pyqtSignal(bool, str)  # wake-word install finished (ok, message)
+    _voice_auth_sig = pyqtSignal(object)     # one-time voice enrollment callback
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -3488,6 +3493,7 @@ class MainWindow(QMainWindow):
         self._clock_tmr=QTimer(self); self._clock_tmr.timeout.connect(self._tick_clock); self._clock_tmr.start(1000); self._tick_clock()
         self._metric_tmr=QTimer(self); self._metric_tmr.timeout.connect(self._update_metrics); self._metric_tmr.start(2000)
         self._log_sig.connect(self._log.append_log); self._state_sig.connect(self._apply_state)
+        self._voice_auth_sig.connect(self._run_voice_auth_callback)
         self._content_sig.connect(self._show_content); self._reconfig_sig.connect(self._show_setup)
         self._camera_sig.connect(self._show_camera_frame); self._confirm_sig.connect(self._show_confirm_banner); self._confirm_hide_sig.connect(self._hide_confirm_banner)
         self._cam_stream_sig.connect(self._on_cam_stream); self._cam_frame_sig.connect(self._on_cam_frame)
