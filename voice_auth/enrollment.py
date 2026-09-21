@@ -8,16 +8,19 @@ import sounddevice as sd
 
 
 def record_owner_samples(
-    app,
+    ui,
     *,
     sample_rate: int = 16000,
     seconds: float = 4.0,
     count: int = 5,
     device=None,
 ) -> list[np.ndarray]:
-    """Show a one-time Qt enrollment dialog and record samples from the selected mic."""
-    from PyQt6.QtCore import QTimer
-    from PyQt6.QtWidgets import QDialog, QLabel, QPushButton, QVBoxLayout
+    """Show the one-time Qt enrollment dialog and record samples from the selected mic.
+
+    Enrollment is requested by the background startup thread, so dialog creation
+    is marshalled to MainWindow's Qt signal before waiting for completion.
+    """
+        from PyQt6.QtWidgets import QDialog, QLabel, QPushButton, QVBoxLayout
 
     done = threading.Event()
     result: dict[str, object] = {"samples": None, "error": None}
@@ -107,7 +110,9 @@ def record_owner_samples(
         )
         dialog.show()
 
-    QTimer.singleShot(0, launch)
+    # The startup runner is a background thread and does not own a Qt event loop.
+    # Queue the dialog creation onto the existing QApplication event loop.
+    ui._win._voice_auth_sig.emit(launch)
     done.wait()
 
     if result["error"] is not None:
