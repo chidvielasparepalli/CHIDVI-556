@@ -98,21 +98,6 @@ class VoiceAuthGate:
         frame_seconds = max(0.0, float(frame_seconds))
         self._pre_roll.extend(data)
 
-        if self.state.open_for_everyone:
-            self._buffer.extend(data)
-            if self._speaking:
-                self._speech_seconds += frame_seconds
-            elif level >= 0.025:
-                self._speaking = True
-                self._speech_seconds = frame_seconds
-            if self._speaking and self._speech_seconds >= self._max_utterance_seconds:
-                self._finish_later(bytes(self._buffer))
-                self._buffer.clear()
-                self._speaking = False
-                self._speech_seconds = 0.0
-                self._silence_seconds = 0.0
-            return
-
         if level >= 0.025:
             if not self._speaking:
                 # First speech frame: include only a short pre-roll, not the
