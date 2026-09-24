@@ -2,9 +2,6 @@ name: CHIDVI-556 App Builder Checks
 
 on:
   push:
-    branches:
-      - main
-      - feature/app-builder
   pull_request:
     branches:
       - main
