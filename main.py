@@ -143,8 +143,8 @@ def _speak_voice_auth_rejection(text: str) -> None:
 
 
 def _ensure_voice_profile(ui: JarvisUI) -> VoiceAuthService:
-    """One-time owner enrollment. Samples are captured from the app microphone."""
-    config = VoiceAuthConfig.from_env()
+    """Load the owner voice profile, enrolling it once when necessary."""
+    config = VoiceAuthConfig.from_env(BASE_DIR)
     if not config.embedding_path.exists():
         ui.write_log("SYS: Voice authorization setup required — record five samples.")
         samples = record_owner_samples(
@@ -154,11 +154,13 @@ def _ensure_voice_profile(ui: JarvisUI) -> VoiceAuthService:
             count=config.enroll_samples,
             device=audio_devices.resolve(get_input_device(), "input"),
         )
+        # Construct the expensive ECAPA model exactly once.
         service = VoiceAuthService(config)
         service.enroll(samples, config.sample_rate)
         ui.write_log("SYS: Owner voice profile enrolled.")
-    else:
-        ui.write_log("SYS: Owner voice profile loaded.")
+        return service
+
+    ui.write_log("SYS: Owner voice profile loaded.")
     return VoiceAuthService(config)
 
 def _load_system_prompt() -> str:
@@ -1097,10 +1099,14 @@ class JarvisLive:
                                 self._last_user_speech = time.monotonic()
                                 if any(k in txt.lower() for k in _STOP_WORDS):
                                     self._game_stop.set()
+                                # Gemini can only produce input transcription for audio
+                                # that the local gate has already accepted. This keeps the
+                                # "answer everyone" override owner-controlled rather than an
+                                # unauthenticated backdoor.
                                 if self._voice_gate is not None and ALLOW_RE.search(txt):
-                                    self._voice_gate.state.open_for_everyone = True
+                                    self._voice_gate.grant_public_access()
                                     if self._phone_voice_gate is not None:
-                                        self._phone_voice_gate.state.open_for_everyone = True
+                                        self._phone_voice_gate.grant_public_access()
                                     self.ui.write_log("SYS: Voice authorization override — answering everyone.")
 
                         if sc.turn_complete:

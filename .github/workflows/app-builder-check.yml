@@ -2,9 +2,6 @@ name: CHIDVI-556 App Builder Checks
 
 on:
   push:
-    branches:
-      - main
-      - feature/app-builder
   pull_request:
     branches:
       - main
@@ -20,10 +17,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install builder test dependency
-        run: python -m pip install "google-genai>=2.8.0"
+        run: python -m pip install "google-genai>=2.8.0" numpy
 
       - name: Compile Python sources
         run: python -m compileall -q actions core voice_auth tests main.py ui.py
 
       - name: Run builder utility tests
-        run: python -m unittest tests.test_app_builder
+        run: python -m unittest tests.test_app_builder tests.test_voice_auth
