@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -8,6 +9,15 @@ from dataclasses import dataclass
 import numpy as np
 
 from .service import VoiceAuthService
+
+
+ALLOW_RE = re.compile(
+    r"\b(?:that's okay|thats okay|that is okay|allow(?: it)?|"
+    r"you can answer|you may answer|answer everyone|answer them|let them ask|"
+    r"answer anyone|anyone can talk|dont restrict|don't restrict|"
+    r"it's okay|its okay|okay answer|go ahead and answer)\b",
+    re.IGNORECASE,
+)
 
 
 REJECTION_TEXT = "I can’t respond until I recognize your authorized voice."
