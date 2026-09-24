@@ -73,10 +73,6 @@ from memory.config_manager     import (
 )
 from core.plugin_loader        import discover_plugins
 from core                      import undo as undo_stack
-from voice_auth.config         import VoiceAuthConfig
-from voice_auth.enrollment     import record_owner_samples
-from voice_auth.service        import VoiceAuthService
-from voice_auth.gate            import VoiceAuthGate, ALLOW_RE
 from core                      import confirm as confirm_gate
 from core                      import audio_devices
 from core.action_loader        import discover_actions
@@ -128,40 +124,6 @@ def _get_api_key() -> str:
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 
-
-def _speak_voice_auth_rejection(text: str) -> None:
-    """Speak the biometric rejection locally without sending the request to Gemini."""
-    try:
-        if _platform.system() == "Windows":
-            import win32com.client
-            speaker = win32com.client.Dispatch("SAPI.SpVoice")
-            speaker.Speak(text)
-            return
-    except Exception as exc:
-        print(f"[VoiceAuth] Local TTS failed: {exc}")
-    print(f"[VoiceAuth] {text}")
-
-
-def _ensure_voice_profile(ui: JarvisUI) -> VoiceAuthService:
-    """Load the owner voice profile, enrolling it once when necessary."""
-    config = VoiceAuthConfig.from_env(BASE_DIR)
-    if not config.embedding_path.exists():
-        ui.write_log("SYS: Voice authorization setup required — record five samples.")
-        samples = record_owner_samples(
-            ui,
-            sample_rate=config.sample_rate,
-            seconds=4.0,
-            count=config.enroll_samples,
-            device=audio_devices.resolve(get_input_device(), "input"),
-        )
-        # Construct the expensive ECAPA model exactly once.
-        service = VoiceAuthService(config)
-        service.enroll(samples, config.sample_rate)
-        ui.write_log("SYS: Owner voice profile enrolled.")
-        return service
-
-    ui.write_log("SYS: Owner voice profile loaded.")
-    return VoiceAuthService(config)
 
 def _load_system_prompt() -> str:
     try:
@@ -394,11 +356,8 @@ def _keep_context_of(exc: BaseException) -> bool:
 
 
 class JarvisLive:
-    def __init__(self, ui: JarvisUI, voice_service: VoiceAuthService | None = None):
+    def __init__(self, ui: JarvisUI):
         self.ui             = ui
-        self._voice_service  = voice_service
-        self._voice_gate     = None
-        self._phone_voice_gate = None
         self._asst_name     = "JARVI    S"   # updated each session from config
         self.session              = None
         self.audio_in_queue       = None
@@ -952,13 +911,6 @@ class JarvisLive:
             response={"result": result}
         )
 
-    async def _send_authenticated_audio(self, pcm_bytes: bytes):
-        if not self.session:
-            return
-        await self.session.send_realtime_input(
-            audio=types.Blob(data=pcm_bytes, mime_type="audio/pcm")
-        )
-
     async def _send_realtime(self):
         while True:
             msg = await self.out_queue.get()
@@ -996,13 +948,10 @@ class JarvisLive:
             if not jarvis_speaking and not self.ui.muted and not self._phone_active:
                 data = indata.tobytes()
                 level = _pcm_level(indata)
-                if self._voice_gate is not None:
-                    self._voice_gate.add_pcm(data, level, frames / SEND_SAMPLE_RATE)
-                else:
-                    loop.call_soon_threadsafe(
-                        self.out_queue.put_nowait,
-                        {"data": data, "mime_type": "audio/pcm"}
-                    )
+                loop.call_soon_threadsafe(
+                    self.out_queue.put_nowait,
+                    {"data": data, "mime_type": "audio/pcm"}
+                )
                 try:
                     self.ui.set_audio_level(level, "mic")
                 except Exception:
@@ -1099,16 +1048,6 @@ class JarvisLive:
                                 self._last_user_speech = time.monotonic()
                                 if any(k in txt.lower() for k in _STOP_WORDS):
                                     self._game_stop.set()
-                                # Gemini can only produce input transcription for audio
-                                # that the local gate has already accepted. This keeps the
-                                # "answer everyone" override owner-controlled rather than an
-                                # unauthenticated backdoor.
-                                if self._voice_gate is not None and ALLOW_RE.search(txt):
-                                    self._voice_gate.grant_public_access()
-                                    if self._phone_voice_gate is not None:
-                                        self._phone_voice_gate.grant_public_access()
-                                    self.ui.write_log("SYS: Voice authorization override — answering everyone.")
-
                         if sc.turn_complete:
                             if self._turn_done_event:
                                 self._turn_done_event.set()
@@ -1543,17 +1482,10 @@ class JarvisLive:
             with self._speaking_lock:
                 speaking = self._is_speaking
             if not speaking and not self.ui.muted:
-                if self._phone_voice_gate is not None:
-                    data = chunk["data"]
-                    level = _pcm_level(np.frombuffer(data, dtype=np.int16))
-                    self._phone_voice_gate.add_pcm(
-                        data, level, len(data) / 2 / SEND_SAMPLE_RATE
-                    )
-                else:
-                    try:
-                        self.out_queue.put_nowait(chunk)
-                    except asyncio.QueueFull:
-                        pass
+                try:
+                    self.out_queue.put_nowait(chunk)
+                except asyncio.QueueFull:
+                    pass
 
     def _on_phone_connected(self) -> None:
         self.ui.write_log("SYS: Phone connected via Remote Dashboard.")
@@ -1596,12 +1528,6 @@ class JarvisLive:
 
     async def run(self):
         self._loop = asyncio.get_event_loop()
-        if self._voice_service is None:
-            raise RuntimeError("Voice authentication service is not initialized")
-        self._voice_gate = VoiceAuthGate(self._voice_service, _speak_voice_auth_rejection, self._loop)
-        self._voice_gate._send_audio = self._send_authenticated_audio
-        self._phone_voice_gate = VoiceAuthGate(self._voice_service, _speak_voice_auth_rejection, self._loop)
-        self._phone_voice_gate._send_audio = self._send_authenticated_audio
         self._reconnect_event = asyncio.Event()
 
         # ── Wire the shared core services to the interface ───────────────────
@@ -1668,13 +1594,6 @@ class JarvisLive:
                     self._vision_busy          = False
                     self._vision_last_time     = 0.0
                     self._interrupted          = False
-                    if self._voice_gate is not None:
-                        self._voice_gate.reset()
-                        self._voice_gate._send_audio = self._send_authenticated_audio
-                    if self._phone_voice_gate is not None:
-                        self._phone_voice_gate.reset()
-                        self._phone_voice_gate._send_audio = self._send_authenticated_audio
-
                     print("[JARVIS] Connected.")
                     if _resumed_with:
                         # Say it plainly: the difference between "it reconnected"
@@ -1820,8 +1739,7 @@ def main():
 
     def runner():
         ui.wait_for_api_key()
-        voice_service = _ensure_voice_profile(ui)
-        jarvis = JarvisLive(ui, voice_service)
+        jarvis = JarvisLive(ui)
         try:
             asyncio.run(jarvis.run())
         except KeyboardInterrupt:

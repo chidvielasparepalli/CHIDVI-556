@@ -4,10 +4,7 @@ sounddevice
 numpy
 google-genai>=2.8.0
 
-# ── Voice authentication ─────────────────────────────────────────────────────
-speechbrain
 torch
-torchaudio
 soundfile
 faster-whisper
 
