@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import re
 import time
 from collections import deque
@@ -166,7 +167,10 @@ class VoiceAuthGate:
             self._processing = False
 
     async def _send_to_gemini(self, pcm_bytes: bytes) -> None:
-        if self._send_audio is not None:
-            await self._send_audio(pcm_bytes)
+        if self._send_audio is None:
+            return
+        result = self._send_audio(pcm_bytes)
+        if inspect.isawaitable(result):
+            await result
 
     _send_audio = None
