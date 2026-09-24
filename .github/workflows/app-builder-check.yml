@@ -26,4 +26,4 @@ jobs:
         run: python -m compileall -q actions core voice_auth tests main.py ui.py
 
       - name: Run builder utility tests
-        run: python -m unittest tests.test_app_builder
+        run: python -m unittest tests.test_app_builder tests.test_voice_auth
