@@ -1,5 +1,7 @@
 # ⚡ CHIDVI-556
 
+![CHIDVI-556 interface](assets/chidvi-556-readme.jpg)
+
 > **AI Companion • Autonomous AI Command Center • AGI Research Prototype**
 
 CHIDVI-556 is the next evolution of CHIDVI-555 — a persistent AI system designed to move beyond simple question-and-answer interaction toward **goal-driven execution, memory, tool use, observation, verification, and recovery**.
