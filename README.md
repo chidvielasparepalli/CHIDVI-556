@@ -1,6 +1,6 @@
 # ⚡ CHIDVI-556
 
-<p align="center"><img src="assets/chidvi-556-readme-hq.jpg" alt="CHIDVI-556 interface"></p>
+<p align="center"><img src="./assets/chidvi-556-readme.jpg" alt="CHIDVI-556 interface" width="100%"></p>
 
 > **AI Companion • Autonomous AI Command Center • AGI Research Prototype**
 
