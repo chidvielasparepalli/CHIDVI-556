@@ -27,7 +27,7 @@ PROFILE = {
         "background": "#17191B",
         "surface": "#24272A",
         "primary": "#9AA1A8",
-        "text": "#9AA1A8",
+        "text": "#F5F5F5",
         "muted_text": "#AAB0B8",
         "radius": 14,
     },
