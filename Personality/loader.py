@@ -1,7 +1,7 @@
-"""Discover standalone persona modules in this folder.
+"""Discover persona modules from files in this directory.
 
-Each persona file exports a PROFILE dictionary. Files are loaded dynamically,
-so adding a new persona does not require editing a central registry.
+Every persona is defined in its own .py file and exports PROFILE.
+Adding/removing a persona requires only adding/deleting that file.
 """
 from copy import deepcopy
 import importlib.util
@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 
 _PERSONA_DIR = Path(__file__).resolve().parent
-_RESERVED = {"__init__", "manager", "profiles", "loader"}
+_RESERVED = {"__init__", "manager", "loader"}
 
 
 def _valid_id(value):
@@ -17,10 +17,7 @@ def _valid_id(value):
 
 
 def discover_personalities():
-    # Keep legacy built-ins available while standalone modules are migrated.
-    from .profiles import PERSONALITIES as legacy
-    found = deepcopy(legacy)
-
+    found = {}
     for path in sorted(_PERSONA_DIR.glob("*.py")):
         if path.stem.startswith("_") or path.stem in _RESERVED:
             continue
