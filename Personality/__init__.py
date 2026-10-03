@@ -1,4 +1,7 @@
 from .manager import PersonalityManager
-from .profiles import PERSONALITIES
+from .loader import discover_personalities
 
-__all__ = ["PersonalityManager", "PERSONALITIES"]
+# Compatibility snapshot for callers that import PERSONALITIES directly.
+PERSONALITIES = discover_personalities()
+
+__all__ = ["PersonalityManager", "PERSONALITIES", "discover_personalities"]
