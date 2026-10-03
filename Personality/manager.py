@@ -1,6 +1,6 @@
-"""Runtime persona selection and prompt/voice configuration."""
+"""Persona selection with dynamic discovery and configuration access."""
 from copy import deepcopy
-from .profiles import PERSONALITIES, get_personality
+from .loader import discover_personalities
 
 class PersonalityManager:
     def __init__(self, default="tony", intensity=0.75):
@@ -29,29 +29,39 @@ class PersonalityManager:
 
     def set_personality(self, personality_id):
         key = personality_id.strip().lower()
-        if key not in PERSONALITIES:
+        if key not in discover_personalities():
             raise KeyError(f"Unknown personality: {personality_id}")
         self._active_id = key
         return self.current()
 
     def current(self):
-        return get_personality(self._active_id)
+        return deepcopy(discover_personalities()[self._active_id])
 
     def available(self):
-        return [{"id": k, "name": v["name"], "description": v["description"]} for k,v in PERSONALITIES.items()]
+        return [{"id": k, "name": v["name"], "description": v["description"]}
+                for k, v in discover_personalities().items()]
 
     def voice_config(self):
         return deepcopy(self.current()["voice"])
 
+    def theme_config(self):
+        return deepcopy(self.current().get("theme", {}))
+
+    def greeting(self):
+        return self.current().get("greeting", "")
+
     def system_prompt(self, base_prompt=""):
         p = self.current()
-        b = p["behavior"]
-        rules = "\n".join("- " + r for r in b["rules"])
+        b = p.get("behavior", p.get("interaction", {}))
+        rules = "\n".join("- " + rule for rule in b.get("rules", []))
         prefix = base_prompt.strip() + "\n\n" if base_prompt.strip() else ""
         return prefix + (
             "PERSONALITY STYLE (never overrides safety, permissions, honesty, or task requirements):\n"
-            f"Persona: {p['name']}\nDescription: {p['description']}\nTone: {b['tone']}\n"
-            f"Humor: {b['humor']}\nWarmth: {b['warmth']}\nVerbosity: {b['verbosity']}\n"
+            f"Persona: {p['name']}\nDescription: {p['description']}\n"
+            f"Tone: {b.get('tone', b.get('style', 'natural'))}\n"
+            f"Humor: {b.get('humor', 'as appropriate')}\n"
+            f"Warmth: {b.get('warmth', 'helpful')}\n"
+            f"Verbosity: {b.get('verbosity', 'as needed')}\n"
             f"Intensity: {self._intensity:.2f}/1.00. Scale style only, not helpfulness or safety.\n"
             "Rules:\n" + rules
         )
