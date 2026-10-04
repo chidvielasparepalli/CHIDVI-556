@@ -607,12 +607,17 @@ class JarvisLive:
             self.ui.write_log(f"ERR: Personality config save failed — {e}")
 
     def _apply_personality(self, personality_id: str, defer_reconnect: bool = False):
-        current = self._personality.set_personality(personality_id)
+        canonical = self._personality.resolve_personality(personality_id)
+        already_active = canonical == self._personality.active_id
+        current = self._personality.set_personality(canonical)
         self._persist_personality()
         self.ui.set_personality_state(self._personality.active_id)
         self.ui.write_log(
             f"SYS: Personality → {current['name']} ({self._personality.active_id})"
         )
+        if already_active:
+            return current
+
         reason = f"personality: {current['name']}"
         if defer_reconnect:
             self._personality_reconnect_pending = True
@@ -695,7 +700,32 @@ class JarvisLive:
         manual = self._dashboard.get_manual_url()
         return url, key, f"{url}/auto-login?key={key}", manual
 
+    def _try_direct_personality_command(self, text: str) -> bool:
+        """Handle explicit typed personality commands without spending a model turn."""
+        import re as _re
+        patterns = (
+            r"^\s*(?:switch|change|activate|use)\s+(?:personality\s+)?(?:to\s+)?(.+?)\s*[.!?]*\s*$",
+            r"^\s*i\s+want\s+(.+?)(?:\s+now)?\s*[.!?]*\s*$",
+        )
+        for pattern in patterns:
+            match = _re.match(pattern, text, flags=_re.IGNORECASE)
+            if not match:
+                continue
+            requested = match.group(1).strip()
+            try:
+                canonical = self._personality.resolve_personality(requested)
+            except KeyError:
+                continue
+            if canonical == self._personality.active_id:
+                self.ui.write_log(f"SYS: Personality already active — {self._personality.current()['name']}.")
+            else:
+                self._apply_personality(canonical, defer_reconnect=False)
+            return True
+        return False
+
     def _on_text_command(self, text: str):
+        if self._try_direct_personality_command(text):
+            return
         if not self._loop or not self.session:
             return
         # Respect wake-word sleep: a typed command must not be answered while
