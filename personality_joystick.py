@@ -206,8 +206,6 @@ class PersonalitySelector(QWidget):
         p.setPen(QPen(QColor(220, 250, 255, 65), 1))
         p.drawEllipse(center, 53, 53)
 
-        stick_dx = self._pointer.x() - cx
-        stick_dy = self._pointer.y() - cy
         p.setPen(QPen(QColor(current_color.red(), current_color.green(), current_color.blue(), 150), 8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawLine(center, self._pointer)
         p.setBrush(QBrush(QColor(current_color.red(), current_color.green(), current_color.blue(), 190)))
@@ -237,8 +235,8 @@ class PersonalitySelector(QWidget):
             p.setPen(QPen(QColor("#8dbac3")))
             p.drawText(
                 int(cx - 240), int(cy + 103), 480, 42,
-                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
-                desc[:140],
+                Qt.AlignmentFlag.AlignCenter,
+                desc[:110],
             )
 
         p.end()
