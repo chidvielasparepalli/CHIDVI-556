@@ -14,7 +14,14 @@ class PersonalityManager:
     def __init__(self, default="tony", intensity=0.75):
         self._intensity = self._validate_intensity(intensity)
         self._active_id = ""
-        self.set_personality(default)
+        try:
+            self.set_personality(default)
+        except KeyError:
+            available = discover_personalities()
+            fallback = "tony" if "tony" in available else next(iter(available), "")
+            if not fallback:
+                raise
+            self._active_id = fallback
 
     @staticmethod
     def _validate_intensity(value):
@@ -69,6 +76,10 @@ class PersonalityManager:
     def set_intensity(self, value):
         self._intensity = self._validate_intensity(value)
         return self._intensity
+
+    def resolve_personality(self, personality_id):
+        """Return the canonical file ID for a human-friendly personality name."""
+        return self._resolve(personality_id)
 
     def set_personality(self, personality_id):
         self._active_id = self._resolve(personality_id)
