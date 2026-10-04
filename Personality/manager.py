@@ -1,12 +1,27 @@
-"""Persona selection with dynamic discovery and configuration access."""
+"""Persona selection with dynamic file discovery and configuration access.
+
+No central personality registry exists here. IDs and aliases are derived from
+the individual PROFILE files discovered by Personality.loader.
+"""
+
 from copy import deepcopy
+import re
+
 from .loader import discover_personalities
+
 
 class PersonalityManager:
     def __init__(self, default="tony", intensity=0.75):
         self._intensity = self._validate_intensity(intensity)
-        self._active_id = "tony"
-        self.set_personality(default)
+        self._active_id = ""
+        try:
+            self.set_personality(default)
+        except KeyError:
+            available = discover_personalities()
+            fallback = "tony" if "tony" in available else next(iter(available), "")
+            if not fallback:
+                raise
+            self._active_id = fallback
 
     @staticmethod
     def _validate_intensity(value):
@@ -14,6 +29,41 @@ class PersonalityManager:
         if not 0 <= value <= 1:
             raise ValueError("intensity must be between 0.0 and 1.0")
         return value
+
+    @staticmethod
+    def _normalize(value):
+        value = str(value or "").strip().lower()
+        value = re.sub(r"[^a-z0-9]+", " ", value)
+        return re.sub(r"\s+", " ", value).strip()
+
+    def _resolve(self, personality_id):
+        personalities = discover_personalities()
+        raw = self._normalize(personality_id)
+        if not raw:
+            raise KeyError("Personality name is empty")
+
+        # Exact filename IDs remain the canonical identifiers.
+        for key in personalities:
+            if self._normalize(key) == raw:
+                return key
+
+        # Human-friendly aliases are derived from each profile's own name.
+        for key, profile in personalities.items():
+            if self._normalize(profile.get("name")) == raw:
+                return key
+
+            # Also accept common "first last" / "last first" wording without
+            # creating a central alias table.
+            tokens = self._normalize(profile.get("name")).split()
+            if len(tokens) >= 2:
+                if self._normalize(" ".join(reversed(tokens))) == raw:
+                    return key
+                if len(tokens) == 2:
+                    for token in tokens:
+                        if token == raw:
+                            return key
+
+        raise KeyError(f"Unknown personality: {personality_id}")
 
     @property
     def active_id(self):
@@ -27,19 +77,22 @@ class PersonalityManager:
         self._intensity = self._validate_intensity(value)
         return self._intensity
 
+    def resolve_personality(self, personality_id):
+        """Return the canonical file ID for a human-friendly personality name."""
+        return self._resolve(personality_id)
+
     def set_personality(self, personality_id):
-        key = personality_id.strip().lower()
-        if key not in discover_personalities():
-            raise KeyError(f"Unknown personality: {personality_id}")
-        self._active_id = key
+        self._active_id = self._resolve(personality_id)
         return self.current()
 
     def current(self):
         return deepcopy(discover_personalities()[self._active_id])
 
     def available(self):
-        return [{"id": k, "name": v["name"], "description": v["description"]}
-                for k, v in discover_personalities().items()]
+        return [
+            {"id": key, "name": value["name"], "description": value["description"]}
+            for key, value in discover_personalities().items()
+        ]
 
     def voice_config(self):
         return deepcopy(self.current()["voice"])
@@ -56,9 +109,13 @@ class PersonalityManager:
         rules = "\n".join("- " + rule for rule in b.get("rules", []))
         prefix = base_prompt.strip() + "\n\n" if base_prompt.strip() else ""
         return prefix + (
-            "PERSONALITY STYLE (never overrides safety, permissions, honesty, or task requirements):\n"
-            f"Persona: {p['name']}\nDescription: {p['description']}\n"
-            f"Tone: {b.get('tone', b.get('style', 'natural'))}\n"
+            "CURRENT PERSONALITY PROFILE\n"
+            "The personality changes communication style only. It never overrides "
+            "safety, permissions, honesty, or task requirements.\n"
+            f"Persona ID: {self._active_id}\n"
+            f"Persona: {p['name']}\n"
+            f"Description: {p['description']}\n"
+            f"Style: {b.get('style', 'natural')}\n"
             f"Humor: {b.get('humor', 'as appropriate')}\n"
             f"Warmth: {b.get('warmth', 'helpful')}\n"
             f"Verbosity: {b.get('verbosity', 'as needed')}\n"

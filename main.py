@@ -79,6 +79,7 @@ from core.action_loader        import discover_actions
 from core.wake_word            import (
     WakeWordDetector, is_ready as wake_is_ready, install_and_download as wake_install,
 )
+from Personality.manager import PersonalityManager
 
 # How long the assistant stays awake with no user speech before it auto-sleeps
 # again (wake-word mode only).
@@ -130,7 +131,9 @@ def _load_system_prompt() -> str:
         return PROMPT_PATH.read_text(encoding="utf-8")
     except Exception:
         return (
-            "You are JARVIS, Tony Stark's AI assistant. "
+            "You are CHIDVI, a personal AI assistant. "
+            "The active personality profile controls your communication style, "
+            "while core instructions, safety, honesty, and task requirements always win. "
             "Be concise, direct, and always use the provided tools to complete tasks. "
             "Never simulate or guess results — always call the appropriate tool."
         )
@@ -231,6 +234,30 @@ TOOL_DECLARATIONS = [
         "parameters": {
             "type": "OBJECT",
             "properties": {},
+        }
+    },
+    {
+        "name": "switch_personality",
+        "description": (
+            "Switch CHIDVI's active personality when the user explicitly asks to change personality, "
+            "activate a named persona, or asks which personalities are available. "
+            "Use action='switch' with the requested personality name, action='list' to list available "
+            "personalities, and action='current' to report the active personality. "
+            "Do not switch merely because a personality is mentioned in ordinary conversation."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": "switch | list | current",
+                },
+                "personality": {
+                    "type": "STRING",
+                    "description": "Personality file ID or human-readable persona name, e.g. deadpool, Gojo, Sherlock Holmes.",
+                },
+            },
+            "required": ["action"],
         }
     },
     {
@@ -373,11 +400,21 @@ class JarvisLive:
         self._vision_busy          = False   # True while a vision capture/inject cycle is in flight
         self._interrupted          = False   # True while draining audio after user interrupt
         self._game_stop           = threading.Event()   # set when user says a stop word mid-game-loop
+        self._personality_reconnect_pending = False
+        self._personality_reconnect_reason = ""
+        try:
+            _personality_cfg = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            _personality_cfg = {}
+        self._personality = PersonalityManager(default=_personality_cfg.get("personality", "tony"))
+
         self.ui.on_text_command   = self._on_text_command
         self.ui.on_remote_clicked = self._make_remote_key
         self.ui.on_interrupt      = self.interrupt
         self.ui.on_voice_change   = self._on_voice_change     # voice picker → rebuild session
         self.ui.on_audio_device_change = self._on_audio_device_change
+        self.ui.on_personality_change = self._on_personality_joystick_change
+        self.ui.set_personality_state(self._personality.active_id)
         self._reconnect_event: asyncio.Event | None = None
         self._reconnect_keep = True   # False → next rebuild drops the resumption handle
 
@@ -556,6 +593,53 @@ class JarvisLive:
         except Exception as e:
             print(f"[PluginSay] {e}")
 
+    def _persist_personality(self) -> None:
+        data = {}
+        try:
+            data = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        data["personality"] = self._personality.active_id
+        try:
+            API_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            API_CONFIG_PATH.write_text(json.dumps(data, indent=4), encoding="utf-8")
+        except Exception as e:
+            self.ui.write_log(f"ERR: Personality config save failed — {e}")
+
+    def _apply_personality(self, personality_id: str, defer_reconnect: bool = False):
+        canonical = self._personality.resolve_personality(personality_id)
+        already_active = canonical == self._personality.active_id
+        current = self._personality.set_personality(canonical)
+        self._persist_personality()
+        self.ui.set_personality_state(self._personality.active_id)
+        self.ui.write_log(
+            f"SYS: Personality → {current['name']} ({self._personality.active_id})"
+        )
+        if already_active:
+            return current
+
+        reason = f"personality: {current['name']}"
+        if defer_reconnect:
+            self._personality_reconnect_pending = True
+            self._personality_reconnect_reason = reason
+        else:
+            self.interrupt()
+            self.request_reconnect(keep_context=True, reason=reason)
+        return current
+
+    def _on_personality_joystick_change(self, personality_id: str):
+        """Qt callback from the hold-and-drag selector. Returns the canonical
+        discovered ID so the UI can stay synchronized with the runtime."""
+        try:
+            self._apply_personality(personality_id, defer_reconnect=False)
+            return self._personality.active_id
+        except KeyError:
+            self.ui.write_log(f"ERR: Unknown personality — {personality_id}")
+            return None
+        except Exception as e:
+            self.ui.write_log(f"ERR: Personality switch failed — {e}")
+            return None
+
     def request_reconnect(self, keep_context: bool = True, reason: str = ""):
         """Thread-safe: ask the run loop to tear down and rebuild the Live
         session. Called from the Qt thread. No-op until the async loop and
@@ -616,7 +700,32 @@ class JarvisLive:
         manual = self._dashboard.get_manual_url()
         return url, key, f"{url}/auto-login?key={key}", manual
 
+    def _try_direct_personality_command(self, text: str) -> bool:
+        """Handle explicit typed personality commands without spending a model turn."""
+        import re as _re
+        patterns = (
+            r"^\s*(?:switch|change|activate|use)\s+(?:personality\s+)?(?:to\s+)?(.+?)\s*[.!?]*\s*$",
+            r"^\s*i\s+want\s+(.+?)(?:\s+now)?\s*[.!?]*\s*$",
+        )
+        for pattern in patterns:
+            match = _re.match(pattern, text, flags=_re.IGNORECASE)
+            if not match:
+                continue
+            requested = match.group(1).strip()
+            try:
+                canonical = self._personality.resolve_personality(requested)
+            except KeyError:
+                continue
+            if canonical == self._personality.active_id:
+                self.ui.write_log(f"SYS: Personality already active — {self._personality.current()['name']}.")
+            else:
+                self._apply_personality(canonical, defer_reconnect=False)
+            return True
+        return False
+
     def _on_text_command(self, text: str):
+        if self._try_direct_personality_command(text):
+            return
         if not self._loop or not self.session:
             return
         # Respect wake-word sleep: a typed command must not be answered while
@@ -690,7 +799,7 @@ class JarvisLive:
 
         memory     = load_memory()
         mem_str    = format_memory_for_prompt(memory)
-        sys_prompt = _load_system_prompt()
+        sys_prompt = self._personality.system_prompt(_load_system_prompt())
 
         now      = datetime.now()
         time_str = now.strftime("%A, %B %d, %Y — %I:%M %p")
@@ -766,6 +875,40 @@ class JarvisLive:
 
         print(f"[JARVIS] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
+
+        if name == "switch_personality":
+            action = str(args.get("action", "current")).lower().strip()
+            if action == "list":
+                items = self._personality.available()
+                result = "Available personalities: " + "; ".join(
+                    f"{item['id']} — {item['name']}" for item in items
+                ) if items else "No personality profiles are available."
+            elif action == "current":
+                current = self._personality.current()
+                result = f"Current personality: {current['name']} ({self._personality.active_id})."
+            elif action == "switch":
+                requested = str(args.get("personality", "")).strip()
+                if not requested:
+                    result = "Tell me which personality to activate."
+                else:
+                    try:
+                        current = self._apply_personality(requested, defer_reconnect=True)
+                        result = (
+                            f"Switched to {current['name']}. The new personality will be active "
+                            "for the next response after the session refresh."
+                        )
+                    except KeyError:
+                        options = ", ".join(item["id"] for item in self._personality.available())
+                        result = f"Unknown personality '{requested}'. Available: {options}."
+            else:
+                result = "Use action='switch', 'list', or 'current'."
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            print(f"[JARVIS] 📤 {name} → {str(result)[:80]}")
+            return types.FunctionResponse(
+                id=fc.id, name=name,
+                response={"result": result},
+            )
 
         if name == "save_memory":
             category = args.get("category", "notes")
@@ -1114,6 +1257,15 @@ class JarvisLive:
                                     await asyncio.sleep(2.0)
                                     self.ui.stop_camera_stream()
                                 asyncio.create_task(_cam_close())
+
+                            if self._personality_reconnect_pending:
+                                # Let the explicit switch confirmation finish before
+                                # rebuilding the Live session with the new system instructions.
+                                reason = self._personality_reconnect_reason or "personality change"
+                                self._personality_reconnect_pending = False
+                                self._personality_reconnect_reason = ""
+                                await asyncio.sleep(0.35)
+                                self.request_reconnect(keep_context=True, reason=reason)
 
                     if response.tool_call:
                         fn_responses = []
