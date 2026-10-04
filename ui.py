@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSplitter,
     QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar,
 )
+from personality_joystick import PersonalityJoystick
 
 # Optional Qt Multimedia support for the animated avatar.
 try:
@@ -3413,6 +3414,7 @@ class MainWindow(QMainWindow):
         self.on_interrupt = None
         self.on_voice_change = None
         self.on_audio_device_change = None
+        self.on_personality_change = None
         self._confirm_overlay = None
         self.get_plugins = None
         self.get_plugin_settings = None
@@ -3476,6 +3478,16 @@ class MainWindow(QMainWindow):
         self._right_panel = self._build_right_panel(); body.addWidget(self._right_panel,0)
         root.addLayout(body,1)
         root.addWidget(self._build_footer())
+
+        # Hold-and-drag personality control. The handle stays in the bottom-right
+        # corner; holding it opens a center-screen radial joystick generated from
+        # the personality files discovered by Personality.loader.
+        self._personality_joystick = PersonalityJoystick(
+            central, current_id=_cfg.get("personality", "tony")
+        )
+        self._personality_joystick.selected.connect(self._on_personality_selected)
+        self._personality_joystick.show()
+        self._personality_joystick.raise_()
 
         self._content_panel = self._build_content_panel()
         self._quick_drawer = self._build_quick_drawer()
@@ -3970,6 +3982,9 @@ class MainWindow(QMainWindow):
         # Hands board — reposition if open
         if self._hands_panel is not None and self._hands_panel.isVisible():
             self._position_hands_panel()
+        if hasattr(self, "_personality_joystick"):
+            self._personality_joystick.sync_geometry(cw.size())
+            self._personality_joystick.raise_()
 
     def _update_audio_bars(self):
         """Mirror the HUD's smoothed mic/spk peaks onto the left-panel bars.
@@ -5029,6 +5044,17 @@ class MainWindow(QMainWindow):
 
     # ────────────────────────────────────────────────────────────────────────────
 
+    def _on_personality_selected(self, personality_id: str):
+        """Handle a joystick release. The overlay is already hidden; the runtime
+        callback owns the actual personality switch and session reconnect."""
+        if self.on_personality_change:
+            try:
+                result = self.on_personality_change(personality_id)
+                if result:
+                    self._personality_joystick.set_current(str(result))
+            except Exception as e:
+                self._log.append_log(f"ERR: Personality switch failed — {e}")
+
     def _do_interrupt(self):
         if self.on_interrupt:
             self.on_interrupt()
@@ -5217,6 +5243,20 @@ class JarvisUI:
     @on_audio_device_change.setter
     def on_audio_device_change(self, cb):
         self._win.on_audio_device_change = cb
+
+    @property
+    def on_personality_change(self):
+        return self._win.on_personality_change
+
+    @on_personality_change.setter
+    def on_personality_change(self, cb):
+        self._win.on_personality_change = cb
+
+    def set_personality_state(self, personality_id: str) -> None:
+        try:
+            self._win._personality_joystick.set_current(personality_id)
+        except Exception:
+            pass
 
     def show_confirm(self, title: str, detail: str) -> None:
         """Thread-safe: raise the irreversible-action gate. Called from action
