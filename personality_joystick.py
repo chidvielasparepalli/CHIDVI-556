@@ -55,6 +55,7 @@ class PersonalitySelector(QWidget):
         self._ring_radius = 205.0
         self._node_radius = 58.0
         self._center = QPointF()
+        self._pointer = QPointF()
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
@@ -66,6 +67,7 @@ class PersonalitySelector(QWidget):
         if self._current_id not in self._profiles:
             self._current_id = self._ids[0] if self._ids else ""
         self._highlighted = self._current_id
+        self._pointer = QPointF(self._center)
         self.update()
 
     def set_current(self, personality_id: str):
@@ -79,6 +81,7 @@ class PersonalitySelector(QWidget):
             return
         self.setGeometry(self.parentWidget().rect())
         self._center = QPointF(self.width() / 2, self.height() / 2)
+        self._pointer = QPointF(self._center)
         self._highlighted = self._current_id
         self._dragging = True
         self.show()
@@ -101,8 +104,20 @@ class PersonalitySelector(QWidget):
 
     def _pick_from_position(self, pos: QPointF) -> None:
         dx = pos.x() - self._center.x()
-        dy = self._center.y() - pos.y()
+        dy = pos.y() - self._center.y()
         distance = math.hypot(dx, dy)
+
+        # Move the virtual joystick cap toward the cursor, but keep the stem
+        # inside the selector ring so it always reads as one physical control.
+        max_pointer = self._ring_radius * 0.68
+        if distance > max_pointer:
+            scale = max_pointer / distance
+            dx *= scale
+            dy *= scale
+        self._pointer = QPointF(
+            self._center.x() + dx,
+            self._center.y() + dy,
+        )
         if distance <= self._dead_zone:
             return
 
@@ -183,13 +198,24 @@ class PersonalitySelector(QWidget):
             text_rect_y = pos.y() + radius + 7
             p.drawText(int(text_rect_x), int(text_rect_y), 164, 20, Qt.AlignmentFlag.AlignCenter, name[:24])
 
-        # Center joystick base.
+        # Center joystick base + moving stick cap.
         current_color = self._primary(self._highlighted)
         p.setBrush(QBrush(QColor(current_color.red(), current_color.green(), current_color.blue(), 42)))
         p.setPen(QPen(QColor(current_color.red(), current_color.green(), current_color.blue(), 185), 2))
         p.drawEllipse(center, 72, 72)
         p.setPen(QPen(QColor(220, 250, 255, 65), 1))
         p.drawEllipse(center, 53, 53)
+
+        stick_dx = self._pointer.x() - cx
+        stick_dy = self._pointer.y() - cy
+        p.setPen(QPen(QColor(current_color.red(), current_color.green(), current_color.blue(), 150), 8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(center, self._pointer)
+        p.setBrush(QBrush(QColor(current_color.red(), current_color.green(), current_color.blue(), 190)))
+        p.setPen(QPen(QColor("#eaffff"), 2))
+        p.drawEllipse(self._pointer, 20, 20)
+        p.setBrush(QBrush(QColor("#eaffff")))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(self._pointer, 5, 5)
 
         # Center label.
         p.setFont(QFont("Courier New", 12, QFont.Weight.Bold))
@@ -227,6 +253,7 @@ class PersonalitySelector(QWidget):
         self._pick_from_position(event.position())
         selected_id = self._highlighted
         self._dragging = False
+        self._pointer = QPointF(self._center)
         try:
             self.releaseMouse()
         except Exception:
@@ -238,6 +265,7 @@ class PersonalitySelector(QWidget):
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
             self._dragging = False
+            self._pointer = QPointF(self._center)
             try:
                 self.releaseMouse()
             except Exception:
@@ -255,6 +283,7 @@ class PersonalityHandle(QPushButton):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            self.setDown(True)
             self.pressed_for_switch.emit()
             event.accept()
             return
@@ -336,6 +365,7 @@ class PersonalityJoystick(QWidget):
 
     def _on_selected(self, personality_id: str):
         self._current_id = personality_id
+        self._handle.setDown(False)
         self._style_handle()
         self.selected.emit(personality_id)
 
