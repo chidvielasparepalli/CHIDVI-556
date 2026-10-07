@@ -51,7 +51,7 @@ PROFILE = {
         },
     },
     "avatar": {
-        "asset": None,
+        "asset": "assets/personality_icons/wednesday.jpg",
         "mood": "dry and restrained",
         "status_text": "Waiting. Impatiently.",
     },
