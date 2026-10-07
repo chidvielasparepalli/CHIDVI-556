@@ -353,9 +353,11 @@ class KokoroTTSEngine:
 class ElevenLabsTTSEngine:
     """ElevenLabs cloud TTS – API key required."""
 
-    def __init__(self, api_key: str, voice_id: str = "pNInz6obpgDQGcFmaJgB"):
+    def __init__(self, api_key: str, voice_id: str):
         self.api_key  = api_key
         self.voice_id = voice_id
+        if not self.voice_id:
+            raise ValueError("ElevenLabs voice_id is required for the active personality.")
 
     def speak(self, text: str) -> None:
         import requests
