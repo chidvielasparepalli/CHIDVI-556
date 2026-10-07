@@ -49,7 +49,7 @@ PROFILE = {
         },
     },
     "avatar": {
-        "asset": None,
+        "asset": "assets/personality_icons/levi.jpg",
         "mood": "direct and controlled",
         "status_text": "Ready for the task",
     },
