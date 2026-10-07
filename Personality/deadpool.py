@@ -47,7 +47,7 @@ PROFILE = {
         },
     },
     "avatar": {
-        "asset": None,
+        "asset": "assets/personality_icons/deadpool.jpg",
         "mood": "mischievous",
         "status_text": "Ready to cause helpful trouble",
     },
