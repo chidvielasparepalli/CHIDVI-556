@@ -9,9 +9,10 @@ currently highlighted personality and immediately dismisses the selector.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 from PyQt6.QtCore import QPointF, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen
+from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
 
 from Personality.loader import discover_personalities
@@ -56,6 +57,8 @@ class PersonalitySelector(QWidget):
         self._node_radius = 58.0
         self._center = QPointF()
         self._pointer = QPointF()
+        self._icon_cache: dict[str, QPixmap | None] = {}
+        self._asset_root = Path(__file__).resolve().parent
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
@@ -141,6 +144,50 @@ class PersonalitySelector(QWidget):
         profile = self._profiles.get(personality_id) or {}
         return str(profile.get("description") or "")
 
+    def _avatar(self, personality_id: str) -> QPixmap | None:
+        if personality_id in self._icon_cache:
+            return self._icon_cache[personality_id]
+
+        profile = self._profiles.get(personality_id) or {}
+        avatar = profile.get("avatar") or {}
+        asset = str(avatar.get("asset") or "").strip()
+        if not asset:
+            self._icon_cache[personality_id] = None
+            return None
+
+        path = self._asset_root / asset
+        pixmap = QPixmap(str(path)) if path.exists() else QPixmap()
+        if pixmap.isNull():
+            self._icon_cache[personality_id] = None
+            return None
+
+        self._icon_cache[personality_id] = pixmap
+        return pixmap
+
+    def _draw_avatar(self, painter: QPainter, personality_id: str, center: QPointF, radius: float) -> bool:
+        pixmap = self._avatar(personality_id)
+        if pixmap is None:
+            return False
+
+        size = max(2, int((radius - 4) * 2))
+        scaled = pixmap.scaled(
+            size,
+            size,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        x = int(center.x() - scaled.width() / 2)
+        y = int(center.y() - scaled.height() / 2)
+
+        clip = QPainterPath()
+        clip.addEllipse(center, radius - 4, radius - 4)
+
+        painter.save()
+        painter.setClipPath(clip)
+        painter.drawPixmap(x, y, scaled)
+        painter.restore()
+        return True
+
     def paintEvent(self, _event):
         if not self._ids:
             return
@@ -182,11 +229,22 @@ class PersonalitySelector(QWidget):
 
             # Node.
             radius = self._node_radius + (9 if selected else 0)
-            fill = QColor(color.red(), color.green(), color.blue(), 45 if not selected else 125)
-            if active and not selected:
-                fill.setAlpha(78)
-            p.setBrush(QBrush(fill))
-            p.setPen(QPen(QColor(color.red(), color.green(), color.blue(), 235 if selected else 110), 3 if selected else 1))
+            has_avatar = self._draw_avatar(p, personality_id, pos, radius)
+            if not has_avatar:
+                fill = QColor(color.red(), color.green(), color.blue(), 45 if not selected else 125)
+                if active and not selected:
+                    fill.setAlpha(78)
+                p.setBrush(QBrush(fill))
+                p.drawEllipse(pos, radius, radius)
+
+            # Icon ring.
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(
+                QPen(
+                    QColor(color.red(), color.green(), color.blue(), 235 if selected else 110),
+                    3 if selected else 1,
+                )
+            )
             p.drawEllipse(pos, radius, radius)
 
             # Node label.
