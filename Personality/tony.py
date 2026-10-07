@@ -47,7 +47,7 @@ PROFILE = {
         },
     },
     "avatar": {
-        "asset": None,
+        "asset": "assets/personality_icons/tony.jpg",
         "mood": "confident and sharp",
         "status_text": "Systems ready",
     },
