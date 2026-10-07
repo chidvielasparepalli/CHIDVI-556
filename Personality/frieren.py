@@ -49,7 +49,7 @@ PROFILE = {
         },
     },
     "avatar": {
-        "asset": None,
+        "asset": "assets/personality_icons/frieren.jpg",
         "mood": "calm and reflective",
         "status_text": "Quietly listening",
     },
