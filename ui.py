@@ -1027,8 +1027,15 @@ def _fmt_size(size: int) -> str:
     else:                return f"{size/1024**3:.1f} GB"
 
 
+# Maximum file size accepted by the in-app uploader.
+MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+MAX_UPLOAD_SIZE_LABEL = "500 MB"
+
+
 class FileDropZone(QWidget):
     file_selected = pyqtSignal(str)
+    file_cleared = pyqtSignal()
+    file_rejected = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1059,20 +1066,31 @@ class FileDropZone(QWidget):
         self._canvas.update()
 
     def dragEnterEvent(self, e: QDragEnterEvent):
-        if e.mimeData().hasUrls():
+        if e.mimeData().hasUrls() and any(
+            url.isLocalFile() and Path(url.toLocalFile()).is_file()
+            for url in e.mimeData().urls()
+        ):
             e.acceptProposedAction()
-            self._drag_over = True; self._canvas.update()
+            self._drag_over = True
+            self._canvas.update()
+        else:
+            e.ignore()
 
     def dragLeaveEvent(self, e):
-        self._drag_over = False; self._canvas.update()
+        self._drag_over = False
+        self._canvas.update()
+        e.accept()
 
     def dropEvent(self, e: QDropEvent):
         self._drag_over = False
-        urls = e.mimeData().urls()
+        urls = [u for u in e.mimeData().urls() if u.isLocalFile()]
         if urls:
-            path = urls[0].toLocalFile()
-            if Path(path).is_file():
-                self._set_file(path)
+            # CHIDVI uses one active working file at a time; take the first
+            # dropped local file and validate it before accepting it.
+            self._set_file(urls[0].toLocalFile())
+            e.acceptProposedAction()
+        else:
+            e.ignore()
         self._canvas.update()
 
     def mousePressEvent(self, e):
@@ -1089,7 +1107,11 @@ class FileDropZone(QWidget):
         return self._current_file
 
     def clear_file(self):
-        self._current_file = None; self._canvas.update()
+        if self._current_file is None:
+            return
+        self._current_file = None
+        self._canvas.update()
+        self.file_cleared.emit()
 
     def _browse(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -1107,15 +1129,42 @@ class FileDropZone(QWidget):
             self._set_file(path)
 
     def _set_file(self, path: str):
-        self._current_file = path
-        self._canvas.update()
-        self.file_selected.emit(path)
+        try:
+            p = Path(path)
+            if not p.is_file():
+                self.file_rejected.emit("That path is not a file.")
+                return
+
+            size = p.stat().st_size
+            if size > MAX_UPLOAD_BYTES:
+                self.file_rejected.emit(
+                    f"File is { _fmt_size(size) }. Maximum allowed is {MAX_UPLOAD_SIZE_LABEL}."
+                )
+                return
+
+            self._current_file = str(p)
+            self._canvas.update()
+            self.file_selected.emit(str(p))
+        except OSError as exc:
+            self.file_rejected.emit(f"Could not read file: {exc}")
 
 
 class _DropCanvas(QWidget):
     def __init__(self, zone: FileDropZone):
         super().__init__(zone)
         self._z = zone
+        # The paint canvas is the visible child, so accept drag/drop here too
+        # and forward the events to the owning FileDropZone.
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, e: QDragEnterEvent):
+        self._z.dragEnterEvent(e)
+
+    def dragLeaveEvent(self, e):
+        self._z.dragLeaveEvent(e)
+
+    def dropEvent(self, e: QDropEvent):
+        self._z.dropEvent(e)
 
     def paintEvent(self, _):
         p = QPainter(self)
@@ -1163,6 +1212,9 @@ class _DropCanvas(QWidget):
         p.setPen(QPen(qcol("#1a4a5a"), 1))
         p.drawText(QRectF(0, cy + 24, W, 14), Qt.AlignmentFlag.AlignCenter,
                    "Images · Video · Audio · PDF · Docs · Code · Data")
+        p.setPen(QPen(qcol("#1a4a5a"), 1))
+        p.drawText(QRectF(0, cy + 38, W, 14), Qt.AlignmentFlag.AlignCenter,
+                   f"MAX FILE SIZE  •  {MAX_UPLOAD_SIZE_LABEL}")
 
     def _paint_drag_over(self, p, W, H):
         cx, cy = W / 2, H / 2
@@ -4107,6 +4159,20 @@ class MainWindow(QMainWindow):
         self._audio_tmr=QTimer(self); self._audio_tmr.timeout.connect(self._update_audio_bars); self._audio_tmr.start(80)
         lay.addWidget(f)
 
+        # ── File uploader ─────────────────────────────────────────────────
+        f,l=self._panel("↥  FILE UPLOAD")
+        self._drop_zone = FileDropZone(self)
+        self._drop_zone.file_selected.connect(self._on_file_selected)
+        self._drop_zone.file_cleared.connect(self._on_file_cleared)
+        self._drop_zone.file_rejected.connect(self._on_file_rejected)
+        l.addWidget(self._drop_zone)
+        upload_hint = QLabel("Drag & drop or click to browse  •  up to 500 MB")
+        upload_hint.setFont(QFont("Courier New", 7))
+        upload_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        upload_hint.setStyleSheet(f"color:{C.TEXT_DIM};background:transparent;")
+        l.addWidget(upload_hint)
+        lay.addWidget(f)
+
         # ── Quick actions: real controls instead of passive info cards ─────
         f,l=self._panel("◈  QUICK ACCESS")
         actions = QGridLayout(); actions.setContentsMargins(0,2,0,0); actions.setHorizontalSpacing(5); actions.setVerticalSpacing(5)
@@ -4567,6 +4633,22 @@ class MainWindow(QMainWindow):
         for txt,col in [(APP_VERSION,C.PRI),("v0.6.0",C.TEXT_DIM),("LEARN  •  BUILD  •  EXPLORE  •  EVOLVE",C.TEXT_MED),("●  CONNECTED",C.GREEN),("⌁  Wi-Fi",C.TEXT_MED),("◖  VOL",C.TEXT_MED)]:
             q=QLabel(txt); q.setFont(QFont("Segoe UI",7,QFont.Weight.Bold)); q.setStyleSheet(f"color:{col};background:transparent;"); l.addWidget(q); l.addSpacing(12)
         l.addStretch(); return w
+
+    def _on_file_cleared(self):
+        self._current_file = None
+        if hasattr(self, "_file_hint"):
+            self._file_hint.setText("No file selected")
+        self._log.append_log("FILE: selection cleared")
+
+    def _on_file_rejected(self, reason: str):
+        self._log.append_log(f"FILE REJECTED: {reason}")
+        if hasattr(self, "_right_detail"):
+            self._right_detail.setText(f"⚠  {reason}")
+        if hasattr(self, "_right_status"):
+            self._right_status.setText("●  FILE REJECTED")
+            self._right_status.setStyleSheet(
+                f"color:{C.RED};background:transparent;"
+            )
 
     def _on_file_selected(self, path: str):
         self._current_file = path
@@ -5203,7 +5285,8 @@ class JarvisUI:
 
     @property
     def current_file(self) -> str | None:
-        return self._win._drop_zone.current_file()
+        zone = getattr(self._win, "_drop_zone", None)
+        return zone.current_file() if zone is not None else None
 
     @property
     def on_text_command(self):
