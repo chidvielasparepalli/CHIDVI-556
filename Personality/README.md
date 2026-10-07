@@ -39,3 +39,16 @@ configuration. The host application's UI, model-request, persistence, and audio
 playback wiring still needs to consume these values. Changing a profile does not
 yet guarantee that the running PyQt UI visibly changes, or that chat history and
 settings are persisted.
+
+
+## ElevenLabs voices
+
+Each persona owns its ElevenLabs voice configuration in its own PROFILE. The runtime reads the active persona's `voice.voice_id` when the ElevenLabs TTS engine is selected.
+
+Set the corresponding environment variable locally (never commit the key or raw voice recordings):
+
+- `CHIDVI_VOICE_WEDNESDAY`
+- `CHIDVI_VOICE_TONY`
+- `CHIDVI_VOICE_DEADPOOL`
+
+Keep the ElevenLabs API key in `ELEVENLABS_API_KEY` in your local `.env` or environment. Voice IDs are not API secrets.
