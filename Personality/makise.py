@@ -49,7 +49,7 @@ PROFILE = {
         },
     },
     "avatar": {
-        "asset": None,
+        "asset": "assets/personality_icons/makise.jpg",
         "mood": "precise and curious",
         "status_text": "Analyzing the evidence",
     },
