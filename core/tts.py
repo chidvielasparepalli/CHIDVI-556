@@ -427,16 +427,45 @@ class TTSPlayer:
 # ---------------------------------------------------------------------------
 
 def create_tts_player(config: dict) -> TTSPlayer:
+    """Create a TTS player using either the explicit config or the active persona voice.
+
+    Persona files own their voice IDs. Set tts_engine='elevenlabs' and leave
+    tts_voice unset to resolve the active persona's ElevenLabs voice_id.
+    """
     engine_name = config.get("tts_engine", "edgetts").lower()
-    if engine_name == "kokoro":
+
+    if engine_name == "elevenlabs":
+        api_key = config.get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY", "")
+        voice_id = config.get("tts_voice")
+
+        if not voice_id:
+            try:
+                from Personality.manager import PersonalityManager
+                personality = PersonalityManager(
+                    default=config.get("personality", "tony")
+                ).current()
+                voice_cfg = personality.get("voice", {})
+                voice_id = voice_cfg.get("voice_id", "")
+            except Exception:
+                voice_id = ""
+
+        if not api_key:
+            raise RuntimeError("ElevenLabs selected but ELEVENLABS_API_KEY is missing.")
+        if not voice_id:
+            raise RuntimeError(
+                "ElevenLabs selected but the active personality has no voice_id. "
+                "Set its CHIDVI_VOICE_* environment variable."
+            )
+
+        engine = ElevenLabsTTSEngine(api_key=api_key, voice_id=voice_id)
+
+    elif engine_name == "kokoro":
         voice  = config.get("tts_voice", "af_heart")
         speed  = float(config.get("tts_speed", 1.0))
         engine = KokoroTTSEngine(voice=voice, speed=speed)
-    elif engine_name == "elevenlabs":
-        api_key  = config.get("elevenlabs_api_key", "")
-        voice_id = config.get("tts_voice", "pNInz6obpgDQGcFmaJgB")
-        engine   = ElevenLabsTTSEngine(api_key=api_key, voice_id=voice_id)
+
     else:   # edgetts (default)
         voice  = config.get("tts_voice", "en-US-GuyNeural")
         engine = EdgeTTSEngine(voice=voice)
+
     return TTSPlayer(engine)
