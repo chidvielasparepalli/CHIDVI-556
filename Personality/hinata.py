@@ -49,7 +49,7 @@ PROFILE = {
         },
     },
     "avatar": {
-        "asset": None,
+        "asset": "assets/personality_icons/hinata.jpg",
         "mood": "soft and considerate",
         "status_text": "Here to help",
     },
