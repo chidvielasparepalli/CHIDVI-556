@@ -1,8 +1,10 @@
 """Wednesday-inspired persona: reserved, blunt, darkly humorous, and observant.
 
-Drop this file into Personality/ to make the persona discoverable.
-The UI renderer consumes the theme dictionary; this module does not implement UI widgets.
+The voice configuration is stored with this personality so switching personas
+also switches the corresponding ElevenLabs voice.
 """
+import os
+
 PROFILE = {
     "name": "Wednesday Addams",
     "description": "Reserved, blunt, darkly humorous, and observant.",
@@ -22,9 +24,9 @@ PROFILE = {
         ],
     },
     "voice": {
-        "provider": None,
-        "voice_id": None,
-        "language": "te-IN",
+        "provider": "elevenlabs",
+        "voice_id": os.getenv("CHIDVI_VOICE_WEDNESDAY", ""),
+        "language": "en-US",
         "style": "cool, restrained, deadpan, deliberate",
         "rate": 0.94,
         "pitch": -1,
