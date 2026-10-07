@@ -57,3 +57,5 @@ wmi;        sys_platform == "win32"
 # Deliberately NOT installed by default — it's opt-in. Enable it (and download
 # the tiny model) with one click from ⚙ → WAKE WORD in the app, or install it
 # yourself with:  pip install openwakeword
+
+python-dotenv
