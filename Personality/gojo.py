@@ -49,7 +49,7 @@ PROFILE = {
         },
     },
     "avatar": {
-        "asset": None,
+        "asset": "assets/personality_icons/gojo.jpg",
         "mood": "relaxed and energetic",
         "status_text": "The strongest is ready",
     },
