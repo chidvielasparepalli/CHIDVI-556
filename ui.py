@@ -4638,6 +4638,13 @@ class MainWindow(QMainWindow):
         self._current_file = None
         if hasattr(self, "_file_hint"):
             self._file_hint.setText("No file selected")
+        if hasattr(self, "_right_status"):
+            self._right_status.setText("●  CONNECTED")
+            self._right_status.setStyleSheet(
+                f"color:{C.GREEN};background:transparent;"
+            )
+        if hasattr(self, "_right_detail"):
+            self._right_detail.setText("Ready for your next command.")
         self._log.append_log("FILE: selection cleared")
 
     def _on_file_rejected(self, reason: str):
@@ -4651,13 +4658,39 @@ class MainWindow(QMainWindow):
             )
 
     def _on_file_selected(self, path: str):
+        # Keep the uploader independent from the older _file_hint widget.
+        # The current UI shows the selected file directly inside FileDropZone.
         self._current_file = path
-        p    = Path(path)
-        cat  = _file_category(p)
+        p = Path(path)
+
+        try:
+            size_bytes = p.stat().st_size
+        except OSError as exc:
+            self._on_file_rejected(f"Could not read file: {exc}")
+            return
+
+        cat = _file_category(p)
         icon, _ = _FILE_ICONS.get(cat, _FILE_ICONS["unknown"])
-        size = _fmt_size(p.stat().st_size)
-        self._file_hint.setText(f"{icon}  {p.name}  ·  {size}  ·  Tell {self._assistant_name} what to do with it")
+        size = _fmt_size(size_bytes)
+
+        if hasattr(self, "_file_hint"):
+            self._file_hint.setText(
+                f"{icon}  {p.name}  ·  {size}  ·  "
+                f"Tell {self._assistant_name} what to do with it"
+            )
+
+        if hasattr(self, "_right_status"):
+            self._right_status.setText("●  FILE READY")
+            self._right_status.setStyleSheet(
+                f"color:{C.GREEN};background:transparent;"
+            )
+        if hasattr(self, "_right_detail"):
+            self._right_detail.setText(
+                f"{icon}  {p.name}\n{size}  •  {cat.upper()}\nReady for your command."
+            )
+
         self._log.append_log(f"FILE: {p.name} ({size}) loaded")
+
         if self.on_text_command:
             msg = (
                 f"[FILE_UPLOADED] path={path} | name={p.name} | "
@@ -4665,7 +4698,11 @@ class MainWindow(QMainWindow):
                 f"Briefly tell the user you can see the file '{p.name}' "
                 f"({size}) has been uploaded and ask what they'd like to do with it."
             )
-            threading.Thread(target=self.on_text_command, args=(msg,), daemon=True).start()
+            threading.Thread(
+                target=self.on_text_command,
+                args=(msg,),
+                daemon=True,
+            ).start()
 
     def notify_phone_connected(self) -> None:
         if self._remote_overlay and self._remote_overlay.isVisible():
