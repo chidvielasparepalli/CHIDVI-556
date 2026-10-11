@@ -121,7 +121,9 @@ class PersonalitySelector(QWidget):
         if distance <= self._dead_zone:
             return
 
-        angle = math.degrees(math.atan2(dy, dx))
+        # Qt screen coordinates increase downward, while node angles use a bottom-up y-axis.
+        # Negate dy so dragging toward a visible node selects that same node.
+        angle = math.degrees(math.atan2(-dy, dx))
         best_index = min(
             range(len(self._ids)),
             key=lambda i: _circular_angle_distance(angle, self._angles()[i]),
