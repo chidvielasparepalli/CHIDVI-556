@@ -11,11 +11,12 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from PyQt6.QtCore import QPointF, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
-from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
+from PyQt6.QtCore import QPointF, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PyQt6.QtWidgets import QApplication, QPushButton, QWidget
 
 from Personality.loader import discover_personalities
+from personality_icons import personality_icon
 
 
 def _qcolor(value: str | None, fallback: str = "#00d4ff") -> QColor:
@@ -41,9 +42,10 @@ def _circular_angle_distance(a: float, b: float) -> float:
 
 
 class PersonalitySelector(QWidget):
-    """Full-window joystick surface shown only while the handle is held."""
+    """Full-window preview surface; release or Enter confirms, Escape cancels."""
 
     selected = pyqtSignal(str)
+    closed = pyqtSignal()
 
     def __init__(self, parent: QWidget, profiles: dict, current_id: str):
         super().__init__(parent)
@@ -57,8 +59,12 @@ class PersonalitySelector(QWidget):
         self._node_radius = 58.0
         self._center = QPointF()
         self._pointer = QPointF()
-        self._icon_cache: dict[str, QPixmap | None] = {}
+        self._icon_cache: dict[str, QPixmap] = {}
         self._asset_root = Path(__file__).resolve().parent
+        self._previous_focus: QWidget | None = None
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName("Personality selector")
+        self.setAccessibleDescription("Arrow keys preview, Enter selects, Escape cancels.")
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
@@ -67,10 +73,13 @@ class PersonalitySelector(QWidget):
     def set_profiles(self, profiles: dict):
         self._profiles = dict(profiles)
         self._ids = list(self._profiles)
+        self._icon_cache.clear()
         if self._current_id not in self._profiles:
             self._current_id = self._ids[0] if self._ids else ""
         self._highlighted = self._current_id
         self._pointer = QPointF(self._center)
+        if not self._ids:
+            self.cancel()
         self.update()
 
     def set_current(self, personality_id: str):
@@ -80,8 +89,9 @@ class PersonalitySelector(QWidget):
             self.update()
 
     def open(self):
-        if not self._ids:
-            return
+        if not self._ids or self.isVisible():
+            return False
+        self._previous_focus = QApplication.focusWidget()
         self.setGeometry(self.parentWidget().rect())
         self._center = QPointF(self.width() / 2, self.height() / 2)
         self._pointer = QPointF(self._center)
@@ -90,8 +100,10 @@ class PersonalitySelector(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
         self.grabMouse()
         self.update()
+        return True
 
     def _angles(self) -> list[float]:
         # Start at the top and go clockwise, like a physical radial control.
@@ -146,30 +158,15 @@ class PersonalitySelector(QWidget):
         profile = self._profiles.get(personality_id) or {}
         return str(profile.get("description") or "")
 
-    def _avatar(self, personality_id: str) -> QPixmap | None:
-        if personality_id in self._icon_cache:
-            return self._icon_cache[personality_id]
+    def _avatar(self, personality_id: str) -> QPixmap:
+        if personality_id not in self._icon_cache:
+            self._icon_cache[personality_id] = personality_icon(
+                personality_id, self._profiles.get(personality_id) or {}, self._asset_root,
+            )
+        return self._icon_cache[personality_id]
 
-        profile = self._profiles.get(personality_id) or {}
-        avatar = profile.get("avatar") or {}
-        asset = str(avatar.get("asset") or "").strip()
-        if not asset:
-            self._icon_cache[personality_id] = None
-            return None
-
-        path = self._asset_root / asset
-        pixmap = QPixmap(str(path)) if path.exists() else QPixmap()
-        if pixmap.isNull():
-            self._icon_cache[personality_id] = None
-            return None
-
-        self._icon_cache[personality_id] = pixmap
-        return pixmap
-
-    def _draw_avatar(self, painter: QPainter, personality_id: str, center: QPointF, radius: float) -> bool:
+    def _draw_avatar(self, painter: QPainter, personality_id: str, center: QPointF, radius: float):
         pixmap = self._avatar(personality_id)
-        if pixmap is None:
-            return False
 
         size = max(2, int((radius - 4) * 2))
         scaled = pixmap.scaled(
@@ -188,7 +185,6 @@ class PersonalitySelector(QWidget):
         painter.setClipPath(clip)
         painter.drawPixmap(x, y, scaled)
         painter.restore()
-        return True
 
     def paintEvent(self, _event):
         if not self._ids:
@@ -218,6 +214,8 @@ class PersonalitySelector(QWidget):
         p.drawLine(QPointF(cx, cy - self._ring_radius - 90), QPointF(cx, cy + self._ring_radius + 90))
 
         # Radial personality nodes.
+        spacing = 2 * self._ring_radius * math.sin(math.pi / max(2, len(self._ids)))
+        icon_scale = min(1.0, spacing / (2 * self._node_radius + 9 + 4))
         for i, personality_id in enumerate(self._ids):
             pos = self._node_position(i)
             color = self._primary(personality_id)
@@ -230,14 +228,13 @@ class PersonalitySelector(QWidget):
             p.drawLine(center, pos)
 
             # Node.
-            radius = self._node_radius + (9 if selected else 0)
-            has_avatar = self._draw_avatar(p, personality_id, pos, radius)
-            if not has_avatar:
-                fill = QColor(color.red(), color.green(), color.blue(), 45 if not selected else 125)
-                if active and not selected:
-                    fill.setAlpha(78)
-                p.setBrush(QBrush(fill))
-                p.drawEllipse(pos, radius, radius)
+            radius = (self._node_radius + (9 if selected else 0)) * icon_scale
+            fill = QColor(color.red(), color.green(), color.blue(), 45 if not selected else 125)
+            if active and not selected:
+                fill.setAlpha(78)
+            p.setBrush(QBrush(fill))
+            p.drawEllipse(pos, radius, radius)
+            self._draw_avatar(p, personality_id, pos, radius)
 
             # Icon ring.
             p.setBrush(Qt.BrushStyle.NoBrush)
@@ -254,8 +251,12 @@ class PersonalitySelector(QWidget):
             p.setFont(QFont("Courier New", 9, QFont.Weight.Bold if selected else QFont.Weight.Normal))
             text_color = QColor("#f2feff") if selected else QColor("#8ab6c1")
             p.setPen(QPen(text_color))
+            # Put labels outside the ring, clear of neighboring portraits.
             text_rect_x = pos.x() - 82
-            text_rect_y = pos.y() + radius + 7
+            text_rect_y = pos.y() + radius + 7 if pos.y() >= cy else pos.y() - radius - 27
+            if abs(pos.x() - cx) > self._ring_radius * 0.6:
+                text_rect_x = pos.x() + radius + 8 if pos.x() > cx else pos.x() - radius - 172
+                text_rect_y = pos.y() - 10
             p.drawText(int(text_rect_x), int(text_rect_y), 164, 20, Qt.AlignmentFlag.AlignCenter, name[:24])
 
         # Center joystick base + moving stick cap.
@@ -282,11 +283,11 @@ class PersonalitySelector(QWidget):
             int(cx - 150), int(cy - 8), 300, 24,
             Qt.AlignmentFlag.AlignCenter, self._name(self._highlighted).upper()[:24],
         )
-        p.setFont(QFont("Courier New", 7))
+        p.setFont(QFont("Courier New", 8))
         p.setPen(QPen(QColor("#6ea9b6")))
         p.drawText(
-            int(cx - 170), int(cy + 15), 340, 18,
-            Qt.AlignmentFlag.AlignCenter, "HOLD  •  DRAG  •  RELEASE",
+            int(cx - 100), int(cy + 15), 200, 45,
+            Qt.AlignmentFlag.AlignCenter, "DRAG + RELEASE\nARROWS + ENTER\nESC TO CANCEL",
         )
 
         # Selected personality description.
@@ -294,8 +295,8 @@ class PersonalitySelector(QWidget):
         if desc:
             p.setPen(QPen(QColor("#8dbac3")))
             p.drawText(
-                int(cx - 240), int(cy + 103), 480, 42,
-                Qt.AlignmentFlag.AlignCenter,
+                int(cx - 240), int(cy + self._ring_radius + 100), 480, 42,
+                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
                 desc[:110],
             )
 
@@ -306,38 +307,73 @@ class PersonalitySelector(QWidget):
             self._pick_from_position(event.position())
 
     def mouseReleaseEvent(self, event):
-        if not self._dragging:
+        if not self._dragging or event.button() != Qt.MouseButton.LeftButton:
             return
         self._pick_from_position(event.position())
-        selected_id = self._highlighted
+        self._commit()
+
+    def _dismiss(self):
         self._dragging = False
+        self._highlighted = self._current_id
         self._pointer = QPointF(self._center)
-        try:
+        if QWidget.mouseGrabber() is self:
             self.releaseMouse()
-        except Exception:
-            pass
         self.hide()
+        previous_focus, self._previous_focus = self._previous_focus, None
+        self.closed.emit()
+        if previous_focus is not None:
+            try:
+                if previous_focus.isVisible() and previous_focus.isEnabled():
+                    previous_focus.setFocus(Qt.FocusReason.OtherFocusReason)
+            except RuntimeError:
+                pass  # The previously focused widget may have been deleted.
+
+    def cancel(self) -> bool:
+        if not self.isVisible():
+            return False
+        self._dismiss()
+        return True
+
+    def _commit(self):
+        if not self.isVisible():
+            return
+        selected_id = self._highlighted
+        self._dismiss()
         if selected_id:
             self.selected.emit(selected_id)
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape:
-            self._dragging = False
-            self._pointer = QPointF(self._center)
-            try:
-                self.releaseMouse()
-            except Exception:
-                pass
-            self.hide()
-            event.accept()
+        if not self.isVisible():
+            super().keyPressEvent(event)
             return
-        super().keyPressEvent(event)
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self.cancel()
+        elif key in (Qt.Key.Key_Right, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Up):
+            step = 1 if key in (Qt.Key.Key_Right, Qt.Key.Key_Down) else -1
+            index = (self._ids.index(self._highlighted) + step) % len(self._ids)
+            self._pick_from_position(self._node_position(index))
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if not event.isAutoRepeat():
+                self._commit()
+        else:
+            super().keyPressEvent(event)
+            return
+        event.accept()
 
 
 class PersonalityHandle(QPushButton):
     """Small bottom-right joystick handle."""
 
     pressed_for_switch = pyqtSignal()
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if not event.isAutoRepeat():
+                self.pressed_for_switch.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -369,8 +405,10 @@ class PersonalityJoystick(QWidget):
 
         self._selector = PersonalitySelector(parent, self._profiles, self._current_id)
         self._selector.selected.connect(self._on_selected)
+        self._selector.closed.connect(self._on_selector_closed)
 
         self._layout_handle()
+        self._style_handle()
 
     def _layout_handle(self):
         x = (self.width() - self._handle.width()) // 2
@@ -394,7 +432,10 @@ class PersonalityJoystick(QWidget):
         color = _qcolor((profile.get("theme") or {}).get("primary"))
         name = str(profile.get("name") or self._current_id)
         glow = _mix(color, 0.38)
-        self._handle.setText("◉")
+        self._handle.setText("")
+        self._handle.setIcon(QIcon(self._selector._avatar(self._current_id)))
+        self._handle.setIconSize(QSize(36, 36))
+        self._handle.setAccessibleName(f"Switch personality — {name}")
         self._handle.setStyleSheet(
             f"""
             QPushButton {{
@@ -414,17 +455,24 @@ class PersonalityJoystick(QWidget):
             }}
             """
         )
-        self._handle.setToolTip(f"Hold to switch personality — {name}")
+        self._handle.setToolTip(f"Hold to switch personality — {name} (or press Space)")
 
     def _open_selector(self):
+        if self._selector.isVisible():
+            return
         self._selector.set_profiles(self._profiles)
         self._selector.set_current(self._current_id)
-        self._selector.open()
+        if not self._selector.open():
+            self._handle.setDown(False)
+
+    def cancel_selection(self) -> bool:
+        return self._selector.cancel()
+
+    def _on_selector_closed(self):
+        self._handle.setDown(False)
 
     def _on_selected(self, personality_id: str):
-        self._current_id = personality_id
-        self._handle.setDown(False)
-        self._style_handle()
+        self.set_current(personality_id)
         self.selected.emit(personality_id)
 
     def sync_geometry(self, parent_size):

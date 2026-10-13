@@ -3565,7 +3565,9 @@ class MainWindow(QMainWindow):
         if not self._ready: self._show_setup()
         QShortcut(QKeySequence("F4"),self).activated.connect(self._toggle_mute)
         QShortcut(QKeySequence("F11"),self).activated.connect(self._toggle_fullscreen)
-        QShortcut(QKeySequence("Escape"),self).activated.connect(self._do_interrupt)
+        self._escape_shortcut = QShortcut(QKeySequence("Escape"), self)
+        self._escape_shortcut.setAutoRepeat(False)
+        self._escape_shortcut.activated.connect(self._on_escape)
 
     def _show_camera_frame(self, img_bytes: bytes):
         """Slot — display camera preview overlay (main thread)."""
@@ -5173,6 +5175,10 @@ class MainWindow(QMainWindow):
                     self._personality_joystick.set_current(str(result))
             except Exception as e:
                 self._log.append_log(f"ERR: Personality switch failed — {e}")
+
+    def _on_escape(self):
+        if not self._personality_joystick.cancel_selection():
+            self._do_interrupt()
 
     def _do_interrupt(self):
         if self.on_interrupt:
