@@ -1,7 +1,7 @@
 """Wednesday-inspired persona: reserved, blunt, darkly humorous, and observant.
 
-The voice configuration is stored with this personality so switching personas
-also switches the corresponding ElevenLabs voice.
+An optional local reference voice is configured separately from this public
+profile. The legacy ElevenLabs voice ID remains available to the TTS factory.
 """
 import os
 
@@ -31,6 +31,7 @@ PROFILE = {
         "rate": 0.94,
         "pitch": -1,
         "requires_authorized_source": True,
+        "reference_config": "config/voices/wednesday.json",
     },
     "theme": {
         "background": "#151515",

@@ -25,6 +25,9 @@ voice_auth/*.wav
 voice_auth/*.mp3
 voice_auth/*.flac
 
+# Local reference-voice settings, recordings, and model checkpoints.
+config/voices/
+
 # ── Python build noise ────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]

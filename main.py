@@ -80,6 +80,7 @@ from core.wake_word            import (
     WakeWordDetector, is_ready as wake_is_ready, install_and_download as wake_install,
 )
 from Personality.manager import PersonalityManager
+from core.reference_voice import load_reference_voice, ReferenceVoiceUnavailable
 
 # How long the assistant stays awake with no user speech before it auto-sleeps
 # again (wake-word mode only).
@@ -399,6 +400,11 @@ class JarvisLive:
         self._vision_last_time     = 0.0     # monotonic time of last screen_process call (cooldown guard)
         self._vision_busy          = False   # True while a vision capture/inject cycle is in flight
         self._interrupted          = False   # True while draining audio after user interrupt
+        self._reference_voice = None
+        self._reference_audio_queue = None
+        self._voice_generation = 0
+        self._reference_generating = False
+        self._reference_turn_open = False
         self._game_stop           = threading.Event()   # set when user says a stop word mid-game-loop
         self._personality_reconnect_pending = False
         self._personality_reconnect_reason = ""
@@ -750,24 +756,61 @@ class JarvisLive:
         elif not self.ui.muted:
             self.ui.set_state("LISTENING")
 
-    def interrupt(self) -> None:
-        """Stop JARVIS mid-speech: drain queued audio and open mic immediately."""
-        self._interrupted = True
-        q = self.audio_in_queue
-        if q:
-            drained = 0
+    def _discard_queued_audio(self):
+        self._voice_generation += 1
+        self._reference_turn_open = False
+        for q in (self.audio_in_queue, self._reference_audio_queue):
+            if q is None:
+                continue
             while True:
                 try:
                     q.get_nowait()
-                    drained += 1
-                except Exception:
+                except asyncio.QueueEmpty:
                     break
-            if drained:
-                print(f"[JARVIS] ✋ Interrupted — {drained} audio chunks discarded")
         self.set_speaking(False)
         if self._turn_done_event:
             self._turn_done_event.clear()
+
+    def interrupt(self) -> None:
+        """Stop playback and invalidate queued or in-flight reference speech."""
+        # Local playback happens after Gemini's turn has already finished.
+        self._interrupted = self._reference_voice is None or self._reference_turn_open
+        self._discard_queued_audio()
         self.ui.write_log("SYS: Interrupted — listening...")
+
+    def _configure_reference_voice(self):
+        self._reference_voice = None
+        try:
+            self._reference_voice = load_reference_voice(self._personality.voice_config(), BASE_DIR)
+        except ReferenceVoiceUnavailable as exc:
+            self.ui.write_log(f"SYS: Reference voice unavailable: {exc} Using the configured Gemini voice.")
+        if self._reference_voice is not None:
+            self.ui.write_log("SYS: Local reference voice configured; it will load on the first response.")
+
+    def _queue_audio_pcm(self, data):
+        # Keep the existing 50 ms slices and selected output device for both voices.
+        for offset in range(0, len(data), 2400):
+            self.audio_in_queue.put_nowait(data[offset:offset + 2400])
+
+    async def _synthesize_reference_audio(self):
+        voice, queue = self._reference_voice, self._reference_audio_queue
+        while True:
+            generation, text = await queue.get()
+            if generation != self._voice_generation or voice is None:
+                continue
+            self._reference_generating = True
+            try:
+                pcm = await asyncio.to_thread(voice.synthesize, text)
+                if generation == self._voice_generation and not self._interrupted:
+                    self._queue_audio_pcm(pcm)
+            except Exception as exc:
+                if generation == self._voice_generation:
+                    self.ui.write_log(f"ERR: Reference speech failed: {exc} The response remains available as text.")
+            finally:
+                self._reference_generating = False
+                if (generation == self._voice_generation and not self._reference_turn_open
+                        and queue.empty() and self._turn_done_event):
+                    self._turn_done_event.set()
 
     def speak(self, text: str):
         if not self._loop or not self.session:
@@ -1169,17 +1212,23 @@ class JarvisLive:
                         else:
                             if self._turn_done_event and self._turn_done_event.is_set():
                                 self._turn_done_event.clear()
-                            # Split into ~50 ms chunks so interrupt() stops audio within 50 ms
-                            # (24000 Hz × 2 bytes/sample × 0.05 s = 2400 bytes per slice)
-                            _audio_data = response.data
-                            _SLICE = 2400
-                            for _i in range(0, len(_audio_data), _SLICE):
-                                self.audio_in_queue.put_nowait(_audio_data[_i : _i + _SLICE])
+                            if self._reference_voice is None:
+                                self._queue_audio_pcm(response.data)
+                            else:
+                                self._reference_turn_open = True
 
                     if response.server_content:
                         sc = response.server_content
 
+                        if self._reference_voice is not None and getattr(sc, "interrupted", False):
+                            self._discard_queued_audio()
+                            out_buf = []
+
                         if sc.output_transcription and sc.output_transcription.text:
+                            if self._reference_voice is not None and not self._interrupted:
+                                self._reference_turn_open = True
+                                if self._turn_done_event:
+                                    self._turn_done_event.clear()
                             txt = _clean_transcript(sc.output_transcription.text)
                             if txt and txt != (out_buf[-1] if out_buf else ""):
                                 out_buf.append(txt)
@@ -1192,7 +1241,8 @@ class JarvisLive:
                                 if any(k in txt.lower() for k in _STOP_WORDS):
                                     self._game_stop.set()
                         if sc.turn_complete:
-                            if self._turn_done_event:
+                            self._reference_turn_open = False
+                            if self._turn_done_event and (self._reference_voice is None or self._interrupted):
                                 self._turn_done_event.set()
 
                             # If this turn_complete ends an interrupted response, clear the
@@ -1226,6 +1276,13 @@ class JarvisLive:
                                         "ts": datetime.now().isoformat(),
                                     }))
                             out_buf = []
+
+                            if self._reference_voice is not None:
+                                if full_out:
+                                    self._reference_audio_queue.put_nowait((self._voice_generation, full_out))
+                                elif not self._reference_generating and self._reference_audio_queue.empty():
+                                    if self._turn_done_event:
+                                        self._turn_done_event.set()
 
                             # Vision injection: model finished tool-response turn → now send the image
                             if self._pending_vision and self.session:
@@ -1721,6 +1778,7 @@ class JarvisLive:
                 self.ui.set_state("THINKING")
                 _resumed_with = self._resume_handle is not None
                 config = self._build_config()
+                self._configure_reference_voice()
 
                 # Fresh client on every reconnect — avoids stale HTTP session state
                 # v1alpha carries proactive audio; if it gets rejected we fall
@@ -1738,6 +1796,9 @@ class JarvisLive:
                     self.audio_in_queue   = asyncio.Queue()
                     self.out_queue        = asyncio.Queue(maxsize=200)
                     self._turn_done_event = asyncio.Event()
+                    self._reference_audio_queue = asyncio.Queue()
+                    self._reference_generating = False
+                    self._reference_turn_open = False
 
                     # Reset transient state that must not carry over from a previous session
                     self._pending_vision       = None
@@ -1774,6 +1835,8 @@ class JarvisLive:
                     tg.create_task(self._listen_audio())
                     tg.create_task(self._receive_audio())
                     tg.create_task(self._play_audio())
+                    if self._reference_voice is not None:
+                        tg.create_task(self._synthesize_reference_audio())
                     tg.create_task(self._run_system_monitor())
                     tg.create_task(self._run_background_monitor())
                     tg.create_task(self._run_proactive_mode())
@@ -1871,6 +1934,10 @@ class JarvisLive:
                 else:
                     self._conn_backoff = 3
             finally:
+                self._voice_generation += 1
+                if self._reference_voice is not None:
+                    self._reference_voice.close()
+                    self._reference_voice = None
                 self.session = None
                 # Only save if there was a real conversation (≥3 turns)
                 if len(self._session_log) >= 3:
