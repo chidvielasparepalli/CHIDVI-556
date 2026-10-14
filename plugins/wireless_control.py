@@ -11,9 +11,12 @@ Configure the phone's Tailscale IP and auth token in plugin settings.
 
 import base64
 import json
+import socket
 import urllib.request
 import urllib.error
-from memory.config_manager import get_plugin_setting, save_plugin_config
+from core.phone_control import MAX_IMAGE_BYTES, integer, local_ip, save_png, validate_action
+from core.task_control import check_task_cancelled
+from memory.config_manager import get_plugin_setting
 
 _PLUGIN_NAME = "wireless_control"
 _DEFAULT_PORT = 8795
@@ -61,239 +64,155 @@ PLUGIN_SETTINGS = {
     "namespace": _PLUGIN_NAME,
     "title": "Wireless Phone Control",
     "fields": [
-        {"key": "phone_ip", "label": "Phone IP Address (Tailscale)", "type": "text",
+        {"key": "phone_ip", "label": "Phone IP Address (LAN or Tailscale)", "type": "text",
          "placeholder": "100.x.x.x or 192.168.1.x"},
-        {"key": "phone_token", "label": "Auth Token", "type": "text",
+        {"key": "phone_token", "label": "Auth Token", "type": "password",
          "placeholder": "shown on phone companion app"},
         {"key": "port", "label": "Port", "type": "number", "default": _DEFAULT_PORT},
+        {"key": "use_https", "label": "HTTPS (requires trusted phone certificate)", "type": "toggle", "default": False},
     ],
 }
 
 
 def _phone_url(path: str) -> str:
-    ip = get_plugin_setting(_PLUGIN_NAME, "phone_ip", "")
-    port = get_plugin_setting(_PLUGIN_NAME, "port", _DEFAULT_PORT)
-    return f"http://{ip}:{port}/{path}"
+    host = local_ip(get_plugin_setting(_PLUGIN_NAME, "phone_ip", ""))
+    port = integer(get_plugin_setting(_PLUGIN_NAME, "port", _DEFAULT_PORT), "port", 1)
+    if not isinstance(path, str) or path.lstrip("/") not in {
+        "ping", "launch", "tap", "swipe", "type", "keyevent", "screenshot", "back", "home", "notifications"
+    }:
+        raise ValueError("Unknown Companion endpoint.")
+    scheme = "https" if get_plugin_setting(_PLUGIN_NAME, "use_https", False) is True else "http"
+    return f"{scheme}://{host}:{port}/{path.lstrip('/')}"
 
 
 def _phone_token() -> str:
-    return get_plugin_setting(_PLUGIN_NAME, "phone_token", "")
+    token = get_plugin_setting(_PLUGIN_NAME, "phone_token", "")
+    if not isinstance(token, str) or not token.strip() or len(token) > 4096 or any(ord(c) < 32 for c in token):
+        raise ValueError("Configure the Companion auth token in Plugin Settings; unauthenticated phone commands are disabled.")
+    return token.strip()
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Never forward bearer credentials to a redirect destination.
+        return None
+
+
+def _request(path, body=None):
+    url = _phone_url(path)
+    token = _phone_token()
+    data = None if body is None else json.dumps(body, allow_nan=False).encode("utf-8")
+    if data is not None and len(data) > 65536:
+        raise ValueError("Phone command exceeds 64 KiB.")
+    request = urllib.request.Request(url, data=data, headers={
+        "Content-Type": "application/json", "Authorization": f"Bearer {token}"
+    }, method="GET" if body is None else "POST")
+    # Keep LAN credentials out of configured HTTP proxies.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+    check_task_cancelled()
+    try:
+        with opener.open(request, timeout=10 if body is None else 15) as response:
+            raw = response.read(17 * 1024 * 1024 + 1)
+    except urllib.error.HTTPError as error:
+        if error.code in {401, 403}:
+            raise RuntimeError("Companion rejected authentication. Check the phone's current token.") from None
+        if 300 <= error.code < 400:
+            raise RuntimeError("Companion redirect refused. Configure the actual phone server address.") from None
+        raise RuntimeError(f"Companion HTTP error {error.code}. Check the phone app and its permissions.") from None
+    except (urllib.error.URLError, TimeoutError, socket.timeout):
+        raise RuntimeError("Phone not reachable. Check IP/port, same LAN or Tailscale, and that the Companion server is running.") from None
+    if len(raw) > 17 * 1024 * 1024:
+        raise ValueError("Companion response exceeds the 17 MiB limit.")
+    try:
+        result = json.loads(raw)
+    except (UnicodeError, json.JSONDecodeError):
+        raise ValueError("Companion returned invalid JSON.") from None
+    if not isinstance(result, dict):
+        raise ValueError("Companion response must be a JSON object.")
+    if result.get("ok") is False or result.get("error"):
+        raise RuntimeError("Companion rejected the command. Check its accessibility, screen-capture and notification permissions.")
+    if path.lstrip("/") not in {"screenshot", "notifications"} and result.get("ok") is not True:
+        raise RuntimeError("Companion did not acknowledge the command; no success assumed.")
+    return result
 
 
 def _post(path: str, body: dict | None = None) -> dict:
-    """POST JSON to the phone app. Returns parsed response. Raises on error."""
-    token = _phone_token()
-    url = _phone_url(path)
-    headers = {"Content-Type": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    data = json.dumps(body or {}).encode()
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read())
+    """Preserved transport entry point used by game_control."""
+    if body is not None and not isinstance(body, dict):
+        raise ValueError("Phone command body must be an object.")
+    return _request(path, body or {})
 
 
 def _get(path: str) -> dict:
-    """GET from the phone app. Returns parsed response. Raises on error."""
-    token = _phone_token()
-    url = _phone_url(path)
-    headers = {}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    req = urllib.request.Request(url, headers=headers, method="GET")
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read())
+    """Preserved transport entry point used by game_control."""
+    return _request(path)
+
+
+def execute(parameters: dict) -> dict:
+    """Structured result; never return typed text or notification secrets."""
+    try:
+        params = validate_action(parameters, {"devices", "open", "tap", "swipe", "text", "keyevent",
+                                              "screencap", "back", "home", "notifications"})
+        action = params["action"]
+        if action == "devices":
+            info = _get("/ping")
+            if info.get("ok") is not True:
+                raise RuntimeError("Companion did not confirm an authenticated connection.")
+            return {"ok": True, "message": "Phone Companion connected.",
+                    "data": {"screen_capture": bool(info.get("screen"))}}
+        if action == "screencap":
+            response = _post("/screenshot", {"quality": 80})
+            encoded = response.get("png")
+            if not isinstance(encoded, str) or len(encoded) > (MAX_IMAGE_BYTES + 2) // 3 * 4:
+                raise ValueError("Phone returned an empty or oversized screenshot.")
+            try:
+                data = base64.b64decode(encoded, validate=True)
+            except (ValueError, TypeError):
+                raise ValueError("Phone returned invalid screenshot encoding.") from None
+            path = save_png(data, params["value"])
+            return {"ok": True, "message": f"Screen saved to {path}.", "data": {"path": path}}
+        if action == "notifications":
+            response = _post("/notifications")
+            notifications = response.get("notifications")
+            if not isinstance(notifications, list):
+                raise ValueError("Companion returned invalid notification data.")
+            # Notifications can contain one-time codes; never send their contents to the agent.
+            return {"ok": True, "message": f"{len(notifications)} notification(s). Contents are hidden for privacy.",
+                    "data": {"count": len(notifications)}}
+        calls = {
+            "open": ("/launch", {"package": params.get("value")}),
+            "tap": ("/tap", {"x": params.get("x"), "y": params.get("y")}),
+            "swipe": ("/swipe", {"x1": params.get("x"), "y1": params.get("y"),
+                                   "x2": params.get("x2"), "y2": params.get("y2"), "duration": params.get("duration")}),
+            "text": ("/type", {"text": params.get("value")}),
+            "keyevent": ("/keyevent", {"keycode": params.get("keyevent")}),
+            "back": ("/back", {}), "home": ("/home", {}),
+        }
+        path, body = calls[action]
+        response = _post(path, body)
+        if response.get("ok") is not True:
+            raise RuntimeError("Companion did not acknowledge the command; no success assumed.")
+        return {"ok": True, "message": f"{action.capitalize()} command accepted by phone. UI effect has not been verified."}
+    except (ValueError, RuntimeError, OSError) as error:
+        return {"ok": False, "error": str(error)}
+    except Exception:
+        return {"ok": False, "error": "Unexpected Companion failure. Check configuration and phone permissions."}
 
 
 def run(parameters: dict, player=None, session_memory=None) -> str:
-    try:
-        action = (parameters.get("action") or "").lower().strip()
-        if not action:
-            return "Sir, I need an 'action' (devices, tap, swipe, text, keyevent, screencap, back, home)."
+    result = execute(parameters)
+    return result["message"] if result["ok"] else f"Wireless phone control failed: {result['error']}"
 
-        known = {"devices", "open", "tap", "swipe", "text", "keyevent",
-                 "screencap", "back", "home", "notifications"}
-        if action not in known:
-            return f"Unknown action '{action}'. Use devices, tap, swipe, text, keyevent, screencap, back, home, or notifications."
 
-        # Validate args up front.
-        if action in ("tap",) and ("x" not in parameters or "y" not in parameters):
-            return "Sir, 'tap' needs 'x' and 'y' coordinates."
-        if action == "swipe":
-            if "x" not in parameters or "y" not in parameters:
-                return "Sir, 'swipe' needs start 'x' and 'y'."
-            if "x2" not in parameters or "y2" not in parameters:
-                return "Sir, 'swipe' needs end 'x2' and 'y2'."
-        if action == "open" and not parameters.get("value"):
-            return "Sir, 'open' needs an app package in 'value'."
-        if action == "text" and not parameters.get("value"):
-            return "Sir, 'text' needs a 'value' to type."
-        if action == "screencap" and not parameters.get("value"):
-            return "Sir, 'screencap' needs an output PNG path in 'value'."
-        if action == "keyevent" and "keyevent" not in parameters:
-            return "Sir, 'keyevent' needs a key id in 'keyevent'."
+def _test_connection(_values=None):
+    result = execute({"action": "devices"})
+    return result["ok"], result.get("message", result.get("error", "Connection failed."))
 
-        # Check phone connection.
-        if action == "devices":
-            try:
-                info = _get("/ping")
-                version = info.get("version", "?")
-                screen = "screen capture on" if info.get("screen") else "screen capture off"
-                return f"Phone connected (v{version}, {screen})."
-            except Exception as e:
-                return f"Sir, phone not reachable: {e}"
 
-        if action == "open":
-            _post("/launch", {"package": parameters["value"]})
-            return f"Opened app {parameters['value']}."
-
-        if action == "tap":
-            _post("/tap", {"x": int(parameters["x"]), "y": int(parameters["y"])})
-            return "Tapped the screen."
-
-        if action == "swipe":
-            dur = int(parameters.get("duration") or 300)
-            _post("/swipe", {
-                "x1": int(parameters["x"]), "y1": int(parameters["y"]),
-                "x2": int(parameters["x2"]), "y2": int(parameters["y2"]),
-                "duration": dur,
-            })
-            return "Swiped."
-
-        if action == "keyevent":
-            _post("/keyevent", {"keycode": int(parameters["keyevent"])})
-            return "Key pressed."
-
-        if action == "text":
-            _post("/type", {"text": parameters["value"]})
-            return f"Typed: {parameters['value']}"
-
-        if action == "screencap":
-            resp = _post("/screenshot", {"quality": 80})
-            png_b64 = resp.get("png", "")
-            if not png_b64:
-                return "Sir, phone returned empty screenshot."
-            path = parameters["value"]
-            with open(path, "wb") as f:
-                f.write(base64.b64decode(png_b64))
-            return f"Screen saved to {path}."
-
-        if action == "back":
-            _post("/back")
-            return "Back pressed."
-
-        if action == "home":
-            _post("/home")
-            return "Home pressed."
-
-        if action == "notifications":
-            resp = _post("/notifications")
-            notifs = resp.get("notifications", [])
-            if not notifs:
-                return "No notifications."
-            lines = [f"- {n.get('title', '?')}: {n.get('text', '')}" for n in notifs[:10]]
-            return f"{len(notifs)} notification(s):\n" + "\n".join(lines)
-
-        return "Done."
-    except urllib.error.URLError as e:
-        return f"Sir, cannot reach phone: {e}. Check IP and token in plugin settings."
-    except Exception as e:
-        return f"Sir, wireless_control failed: {e}"
+PLUGIN_SETTINGS["action"] = {"label": "TEST CONNECTION", "run": _test_connection}
 
 
 if __name__ == "__main__":
-    import sys as _sys
-    # `python -m` creates two module objects: the import and __main__.
-    # run() and helpers live in __main__; patch that dict directly.
-    _g = vars(_sys.modules["__main__"])
-
-    # ── Bad-request guards: no phone needed. ──
-    for case, expect in [
-        ({}, "I need an 'action'"),
-        ({"action": "nonsense"}, "Unknown action"),
-        ({"action": "open"}, "needs an app package"),
-        ({"action": "text"}, "needs a 'value'"),
-        ({"action": "screencap"}, "needs an output PNG path"),
-        ({"action": "keyevent"}, "needs a key id"),
-        ({"action": "tap"}, "needs 'x' and 'y'"),
-        ({"action": "swipe"}, "needs start"),
-        ({"action": "swipe", "x": 0, "y": 0}, "needs end"),
-    ]:
-        out = run(case)
-        assert expect in out, f"FAIL {case}: {out}"
-
-    # ── Mock HTTP + config layer for success branches. ──
-    _calls: list[tuple[str, dict | None]] = []
-
-    def _mock_post(path: str, body: dict | None = None) -> dict:
-        _calls.append((path, body))
-        if path == "/screenshot":
-            import struct, zlib
-            sig = b"\x89PNG\r\n\x1a\n"
-            ihdr_data = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
-            ihdr_crc = zlib.crc32(b"IHDR" + ihdr_data) & 0xFFFFFFFF
-            ihdr = struct.pack(">I", 13) + b"IHDR" + ihdr_data + struct.pack(">I", ihdr_crc)
-            raw = b"\x00\xff\x00\x00"
-            compressed = zlib.compress(raw)
-            idat_crc = zlib.crc32(b"IDAT" + compressed) & 0xFFFFFFFF
-            idat = struct.pack(">I", len(compressed)) + b"IDAT" + compressed + struct.pack(">I", idat_crc)
-            iend_crc = zlib.crc32(b"IEND") & 0xFFFFFFFF
-            iend = struct.pack(">I", 0) + b"IEND" + struct.pack(">I", iend_crc)
-            png = base64.b64encode(sig + ihdr + idat + iend).decode()
-            return {"png": png, "width": 1, "height": 1}
-        if path == "/notifications":
-            return {"notifications": [{"title": "Test", "text": "Hello"}]}
-        return {"ok": True}
-
-    def _mock_get(path: str) -> dict:
-        _calls.append((path, None))
-        if path == "/ping":
-            return {"ok": True, "version": "1.0", "screen": True}
-        return {"ok": True}
-
-    def _mock_setting(ns: str, key: str, default=None):
-        return {"phone_ip": "10.0.0.1", "phone_token": "test123", "port": 8795}.get(key, default)
-
-    # Monkey-patch __main__ globals dict directly (run() resolves names from here).
-    _real = {k: _g[k] for k in ("_post", "_get", "get_plugin_setting")}
-    _g["_post"] = _mock_post
-    _g["_get"] = _mock_get
-    _g["get_plugin_setting"] = _mock_setting
-    # DEBUG
-    print("DEBUG _g is run globals?", run.__globals__ is _g)
-    print("DEBUG _post in _g?", "_post" in _g, "_get" in _g, "get_plugin_setting" in _g)
-
-    success_cases = [
-        ({"action": "devices"}, "Phone connected"),
-        ({"action": "open", "value": "com.whatsapp"}, "Opened app"),
-        ({"action": "tap", "x": 100, "y": 200}, "Tapped"),
-        ({"action": "swipe", "x": 0, "y": 0, "x2": 500, "y2": 500}, "Swiped"),
-        ({"action": "keyevent", "keyevent": 3}, "Key pressed"),
-        ({"action": "text", "value": "hello"}, "Typed: hello"),
-        ({"action": "screencap", "value": "_test_screen.png"}, "Screen saved"),
-        ({"action": "back"}, "Back pressed"),
-        ({"action": "home"}, "Home pressed"),
-        ({"action": "notifications"}, "notification"),
-    ]
-    for case, expect in success_cases:
-        _calls.clear()
-        out = run(case)
-        assert expect in out, f"FAIL {case}: {out}"
-
-    # Verify dispatch paths hit the right endpoints.
-    assert any(p == "/ping" for p, _ in _calls), "/ping never called"
-    assert any(p == "/tap" for p, _ in _calls), "/tap never called"
-    assert any(p == "/swipe" for p, _ in _calls), "/swipe never called"
-    assert any(p == "/screenshot" for p, _ in _calls), "/screenshot never called"
-
-    # Restore.
-    _g.update(_real)
-
-    # Clean up test file.
-    import os
-    try:
-        os.remove("_test_screen.png")
-    except OSError:
-        pass
-
-    print("self-check OK")
+    import unittest
+    suite = unittest.defaultTestLoader.discover("tests", pattern="test_phone_control.py")
+    raise SystemExit(not unittest.TextTestRunner(verbosity=1).run(suite).wasSuccessful())

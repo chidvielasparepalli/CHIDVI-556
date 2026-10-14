@@ -53,21 +53,8 @@ def _slug(value: str) -> str:
 
 
 def _api_key(base_dir: Path) -> str:
-    for path in (
-        base_dir / "config" / "api_keys.json",
-        Path.home() / ".config" / "chidvi" / "api_keys.json",
-    ):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            key = str(data.get("gemini_api_key") or data.get("GEMINI_API_KEY") or "").strip()
-            if key:
-                return key
-        except Exception:
-            pass
-    key = os.getenv("GEMINI_API_KEY", "").strip()
-    if key:
-        return key
-    raise RuntimeError("Gemini API key is missing. Configure CHIDVI's Gemini key first.")
+    from memory.config_manager import get_gemini_key
+    return get_gemini_key() or ""
 
 
 def _strip_fences(text: str) -> str:
@@ -130,7 +117,8 @@ class AppBuilder:
         self.narrator = narrator
         self.model_name = model
         self.root_dir.mkdir(parents=True, exist_ok=True)
-        self.client = genai.Client(api_key=_api_key(self.base_dir))
+        from core.provider_client import configured_client
+        self.client = configured_client(role="chat", task_kind="coding")
 
     @staticmethod
     def _state_path(project_dir: Path) -> Path:

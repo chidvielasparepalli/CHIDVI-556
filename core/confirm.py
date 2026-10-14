@@ -37,8 +37,10 @@ from __future__ import annotations
 
 import threading
 import time
+import contextvars
 from dataclasses import dataclass
 from typing import Callable, Optional
+from core.task_control import result_state
 
 # A pending confirmation is abandoned after this long. Chosen to outlast a
 # normal "hang on, let me look at the screen" pause without leaving a live
@@ -53,6 +55,8 @@ class _Pending:
     detail:  str
     run:     Callable[[], str]
     at:      float
+    owner:   str | None = None
+    context: object = None
 
 
 _pending: Optional[_Pending] = None
@@ -63,12 +67,18 @@ _lock = threading.Lock()
 _show_cb: Optional[Callable[[str, str], None]] = None
 _hide_cb: Optional[Callable[[], None]] = None
 _log_cb:  Optional[Callable[[str], None]] = None
+_result_cb = None
+_owner_cb = None
+_valid_cb = None
 
 
-def bind(show, hide, log=None) -> None:
+def bind(show, hide, log=None, result=None, owner=None, valid=None) -> None:
     """Wire this module to the HUD. Called once from main.py at startup."""
-    global _show_cb, _hide_cb, _log_cb
+    global _show_cb, _hide_cb, _log_cb, _result_cb, _owner_cb, _valid_cb
     _show_cb, _hide_cb, _log_cb = show, hide, log
+    _result_cb = result
+    _owner_cb = owner
+    _valid_cb = valid
 
 
 def _log(msg: str) -> None:
@@ -94,14 +104,25 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
                 f"not available, so I have not done it.")
 
     with _lock:
+        if _pending is not None and time.monotonic() - _pending.at <= TIMEOUT_SECONDS:
+            return "[CONFIRMATION_PENDING] Resolve the existing desktop confirmation first."
         _pending = _Pending(key=key, title=title, detail=detail,
-                            run=run, at=time.monotonic())
+                            run=run, at=time.monotonic(), owner=_owner_cb() if _owner_cb else None,
+                            context=contextvars.copy_context())
+        pending = _pending
+
+    def expire():
+        resolve(False, expected=pending)
+    timer = threading.Timer(TIMEOUT_SECONDS + 0.05, expire)
+    timer.daemon = True
+    timer.start()
 
     try:
         _show_cb(title, detail)
     except Exception as e:
         with _lock:
-            _pending = None
+            if _pending is pending:
+                _pending = None
         return f"Could not ask for confirmation: {e}. Nothing was done."
 
     _log(f"SYS: Awaiting confirmation — {title}")
@@ -112,7 +133,7 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
     )
 
 
-def resolve(accepted: bool) -> None:
+def resolve(accepted: bool, expected=None) -> None:
     """Called by the UI when the user presses CONFIRM or CANCEL.
 
     Runs the stored callable on a worker thread — this is invoked from the Qt
@@ -121,6 +142,8 @@ def resolve(accepted: bool) -> None:
     global _pending
 
     with _lock:
+        if expected is not None and _pending is not expected:
+            return
         p, _pending = _pending, None
 
     if _hide_cb:
@@ -134,18 +157,35 @@ def resolve(accepted: bool) -> None:
 
     if time.monotonic() - p.at > TIMEOUT_SECONDS:
         _log(f"SYS: Confirmation expired — {p.title}")
+        if _result_cb:
+            _result_cb(False, "Confirmation expired", p.owner)
         return
 
     if not accepted:
         _log(f"SYS: Cancelled — {p.title}")
+        if _result_cb:
+            _result_cb(False, "Confirmation declined", p.owner)
+        return
+
+    if _valid_cb is not None and not _valid_cb(p.owner):
+        _log("SYS: Confirmation belongs to a task that is no longer active; nothing was done.")
+        if _result_cb:
+            _result_cb(False, "Task is no longer active", p.owner)
         return
 
     def _worker():
         try:
-            result = p.run() or "Done."
-            _log(f"SYS: Confirmed — {p.title}. {result}")
+            if _valid_cb is not None and not _valid_cb(p.owner):
+                raise RuntimeError("Task was cancelled before confirmation execution")
+            result = p.context.run(p.run) or "Done."
+            succeeded = result_state(result) != "failed"
+            _log(f"{'SYS: Confirmed' if succeeded else 'ERR: Action failed'} — {p.title}. {result}")
+            if _result_cb:
+                _result_cb(succeeded, result, p.owner)
         except Exception as e:
             _log(f"ERR: {p.title} failed — {e}")
+            if _result_cb:
+                _result_cb(False, f"Action failed: {type(e).__name__}", p.owner)
 
     threading.Thread(target=_worker, daemon=True,
                      name=f"confirm-{p.key}").start()

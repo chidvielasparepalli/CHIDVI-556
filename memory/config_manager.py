@@ -1,5 +1,8 @@
 import json
+import os
 import sys
+import tempfile
+import threading
 from pathlib import Path
 
 def get_base_dir() -> Path:
@@ -10,6 +13,11 @@ def get_base_dir() -> Path:
 BASE_DIR    = get_base_dir()
 CONFIG_DIR  = BASE_DIR / "config"
 CONFIG_FILE = CONFIG_DIR / "api_keys.json"
+_CONSENT_WRITE_LOCK = threading.RLock()
+
+LIVE_SHARING_DEFAULTS = {"interval": 2.0, "max_per_minute": 12, "analysis_per_minute": 4,
+                         "max_width": 1280, "max_height": 720, "monitor": 1,
+                         "change_only": True, "session_minutes": 30}
 
 def ensure_config_dir() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -18,21 +26,9 @@ def config_exists() -> bool:
     return CONFIG_FILE.exists()
 
 def save_api_keys(gemini_api_key: str) -> None:
-    ensure_config_dir()
-
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-
-    data["gemini_api_key"] = gemini_api_key.strip()
-
-    CONFIG_FILE.write_text(
-        json.dumps(data, indent=2),
-        encoding="utf-8"
-    )
+    """Compatibility setup API; credentials are stored with Windows DPAPI."""
+    from core.provider_config import get_provider_store
+    get_provider_store().save_gemini_key(gemini_api_key)
 
 def load_api_keys() -> dict:
     if not CONFIG_FILE.exists():
@@ -43,10 +39,104 @@ def load_api_keys() -> dict:
         print(f"❌ Failed to load api_keys.json: {e}")
         return {}
 
+def get_cloud_vision_enabled() -> bool:
+    """Cloud uploads are opt-in: only a saved JSON boolean true enables them."""
+    data = load_api_keys()
+    return isinstance(data, dict) and data.get("cloud_vision_enabled") is True
+
+
+def save_cloud_vision_enabled(enabled: bool) -> None:
+    """Persist consent without replacing credentials on malformed/failed writes."""
+    if type(enabled) is not bool:
+        raise TypeError("Cloud Vision must be a boolean")
+    _save_consent_fields({"cloud_vision_enabled": enabled})
+
+
+def _save_consent_fields(values: dict) -> None:
+    """Serialize every settings writer with credential migration atomically."""
+    from core.credential_store import file_lock, safe_path
+    with file_lock(CONFIG_FILE):
+        safe_path(CONFIG_FILE)
+        data = json.loads(CONFIG_FILE.read_text(encoding="utf-8")) if CONFIG_FILE.exists() else {}
+        if not isinstance(data, dict):
+            raise ValueError("Configuration must be a JSON object")
+        data.update(values)
+        ensure_config_dir()
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=CONFIG_DIR,
+                                             prefix=".vision-consent-", suffix=".tmp", delete=False) as stream:
+                temporary = Path(stream.name)
+                json.dump(data, stream, indent=4)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, CONFIG_FILE)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+
+def validate_live_sharing_settings(value: dict) -> dict:
+    """Return complete, bounded settings; reject unknown fields and coerced types."""
+    if not isinstance(value, dict):
+        raise TypeError("Live sharing settings must be an object")
+    if set(value) - set(LIVE_SHARING_DEFAULTS):
+        raise ValueError("Unknown live sharing setting")
+    settings = {**LIVE_SHARING_DEFAULTS, **value}
+    interval = settings["interval"]
+    if type(interval) not in (int, float) or not 1 <= interval <= 30:
+        raise ValueError("Live sharing interval must be between 1 and 30 seconds")
+    settings["interval"] = float(interval)
+    for key, low, high in (("max_per_minute", 1, 60), ("analysis_per_minute", 1, 20),
+                           ("max_width", 320, 1920), ("max_height", 240, 1080),
+                           ("monitor", 0, 64), ("session_minutes", 1, 120)):
+        if type(settings[key]) is not int or not low <= settings[key] <= high:
+            raise ValueError(f"{key} must be an integer between {low} and {high}")
+    if type(settings["change_only"]) is not bool:
+        raise TypeError("Change detection must be a boolean")
+    return settings
+
+
+def get_live_sharing_settings() -> dict:
+    data = load_api_keys()
+    try:
+        return validate_live_sharing_settings(data.get("live_screen_sharing", {}))
+    except (AttributeError, TypeError, ValueError):
+        return dict(LIVE_SHARING_DEFAULTS)
+
+
+def save_live_sharing_settings(settings: dict) -> None:
+    _save_consent_fields({"live_screen_sharing": validate_live_sharing_settings(settings)})
+
+
+def get_live_sharing_startup() -> bool:
+    data = load_api_keys()
+    return isinstance(data, dict) and data.get("live_screen_sharing_startup") is True
+
+
+def save_live_sharing_startup(enabled: bool) -> None:
+    if type(enabled) is not bool:
+        raise TypeError("Live sharing startup permission must be a boolean")
+    _save_consent_fields({"live_screen_sharing_startup": enabled})
+
+
 def get_gemini_key() -> str | None:
-    return load_api_keys().get("gemini_api_key")
+    from core.provider_config import get_provider_store
+    key = get_provider_store().gemini_credential()
+    if key:
+        return key
+    # Existing installations continue to work before explicit safe migration.
+    data = load_api_keys()
+    legacy = data.get("gemini_api_key") if isinstance(data, dict) else None
+    return legacy if isinstance(legacy, str) and legacy else None
 
 def is_configured() -> bool:
+    from core.provider_config import get_provider_store
+    store = get_provider_store()
+    if store.has_configuration():
+        return True
+    if store.list_profiles():
+        return False
     key = get_gemini_key()
     return bool(key and len(key) > 15)
 
@@ -63,16 +153,7 @@ def get_user_name() -> str:
 
 def save_assistant_config(assistant_name: str, user_name: str) -> None:
     """Persist assistant name and user name to config."""
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    data["assistant_name"] = assistant_name.strip() or "JARVIS"
-    data["user_name"] = user_name.strip()
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    _save_consent_fields({"assistant_name": assistant_name.strip() or "JARVIS", "user_name": user_name.strip()})
 
 
 # ── Assistant voice ──────────────────────────────────────────────────────────
@@ -92,16 +173,8 @@ def get_voice() -> str:
 def save_voice(voice_name: str) -> None:
     """Persist the chosen Live voice. Unknown names collapse to the default so a
     bad value can never reach the API and break the session."""
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
     v = (voice_name or "").strip()
-    data["voice_name"] = v if v in AVAILABLE_VOICES else DEFAULT_VOICE
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    _save_consent_fields({"voice_name": v if v in AVAILABLE_VOICES else DEFAULT_VOICE})
 
 
 def get_wake_word_enabled() -> bool:
@@ -110,15 +183,7 @@ def get_wake_word_enabled() -> bool:
 
 
 def save_wake_word_enabled(enabled: bool) -> None:
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    data["wake_word_enabled"] = bool(enabled)
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    _save_consent_fields({"wake_word_enabled": bool(enabled)})
 
 
 def get_brief_enabled() -> bool:
@@ -126,15 +191,7 @@ def get_brief_enabled() -> bool:
 
 
 def save_brief_enabled(enabled: bool) -> None:
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    data["morning_brief_enabled"] = enabled
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    _save_consent_fields({"morning_brief_enabled": enabled})
 
 
 # ── Audio devices ────────────────────────────────────────────────────────────
@@ -145,20 +202,8 @@ def save_brief_enabled(enabled: bool) -> None:
 # so unplugging a headset degrades to the built-in speakers instead of crashing.
 
 def _patch_config(**fields) -> None:
-    """Read-modify-write one or more keys in api_keys.json.
-
-    Every setter in this file open-coded this. Collapsing it here means a new
-    setting is one line, and there is one place where a corrupt config file is
-    handled instead of nine."""
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    data.update(fields)
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    """Atomically update settings while preserving malformed files for recovery."""
+    _save_consent_fields(fields)
 
 
 def get_input_device() -> str:
@@ -205,36 +250,29 @@ def get_plugin_setting(namespace: str, key: str, default=None):
 def save_plugin_config(namespace: str, values: dict) -> None:
     """Merge `values` into a namespace's stored config (read-modify-write, like
     every other helper here). Only the provided keys are touched."""
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    pc = data.get("plugin_config")
-    if not isinstance(pc, dict):
-        pc = {}
-    cur = pc.get(namespace)
-    if not isinstance(cur, dict):
-        cur = {}
-    cur.update(values)
-    pc[namespace] = cur
-    data["plugin_config"] = pc
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    from core.credential_store import file_lock, safe_path
+    with file_lock(CONFIG_FILE):
+        safe_path(CONFIG_FILE)
+        data = json.loads(CONFIG_FILE.read_text(encoding="utf-8")) if CONFIG_FILE.exists() else {}
+        if not isinstance(data, dict):
+            raise ValueError("Configuration must be a JSON object")
+        pc = data.get("plugin_config")
+        pc = dict(pc) if isinstance(pc, dict) else {}
+        current = pc.get(namespace)
+        current = dict(current) if isinstance(current, dict) else {}
+        current.update(values)
+        pc[namespace] = current
+        _save_consent_fields({"plugin_config": pc})
 
 
 def save_plugin_enabled(plugin_name: str, enabled: bool) -> None:
-    ensure_config_dir()
-    data: dict = {}
-    if CONFIG_FILE.exists():
-        try:
-            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
-    plugins_cfg = data.get("plugins_enabled")
-    if not isinstance(plugins_cfg, dict):
-        plugins_cfg = {}
-    plugins_cfg[plugin_name] = enabled
-    data["plugins_enabled"] = plugins_cfg
-    CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    from core.credential_store import file_lock, safe_path
+    with file_lock(CONFIG_FILE):
+        safe_path(CONFIG_FILE)
+        data = json.loads(CONFIG_FILE.read_text(encoding="utf-8")) if CONFIG_FILE.exists() else {}
+        if not isinstance(data, dict):
+            raise ValueError("Configuration must be a JSON object")
+        plugins_cfg = data.get("plugins_enabled")
+        plugins_cfg = dict(plugins_cfg) if isinstance(plugins_cfg, dict) else {}
+        plugins_cfg[plugin_name] = enabled
+        _save_consent_fields({"plugins_enabled": plugins_cfg})

@@ -1565,7 +1565,9 @@ class CustomizeOverlay(QWidget):
     """Floating overlay — change assistant name, user name, UI colour and voice."""
 
     saved = pyqtSignal(str, str, str, str)   # assistant_name, user_name, ui_color, voice
-    _OW, _OH = 400, 588
+    vision_privacy_requested = pyqtSignal()
+    providers_requested = pyqtSignal()
+    _OW, _OH = 400, 624
 
     def __init__(self, assistant_name="JARVIS", user_name="",
                  ui_color=DEFAULT_UI_COLOR, voice="", parent=None):
@@ -1597,6 +1599,21 @@ class CustomizeOverlay(QWidget):
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
         lay.addWidget(sep)
+
+        privacy = QPushButton("Vision && Privacy…")
+        privacy.setFixedHeight(28)
+        privacy.setCursor(Qt.CursorShape.PointingHandCursor)
+        privacy.setStyleSheet(f"QPushButton {{ color: {C.TEXT}; background: {C.PANEL}; border: 1px solid {C.BORDER}; border-radius: 3px; }}")
+        privacy.clicked.connect(self.vision_privacy_requested.emit)
+        settings_row = QHBoxLayout()
+        settings_row.addWidget(privacy)
+        providers = QPushButton("AI Providers…")
+        providers.setFixedHeight(28)
+        providers.setCursor(Qt.CursorShape.PointingHandCursor)
+        providers.setStyleSheet(privacy.styleSheet())
+        providers.clicked.connect(self.providers_requested.emit)
+        settings_row.addWidget(providers)
+        lay.addLayout(settings_row)
 
         lay.addWidget(_lbl("ASSISTANT NAME", 8, color=C.TEXT_DIM,
                             align=Qt.AlignmentFlag.AlignLeft))
@@ -2734,14 +2751,16 @@ class RemoteKeyOverlay(QWidget):
         lay.addWidget(self._url_lbl)
 
         self._key_lbl = QLabel(key)
-        self._key_lbl.setFont(QFont("Courier New", 28, QFont.Weight.Bold))
+        self._key_lbl.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        self._key_lbl.setWordWrap(True)
+        self._key_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._key_lbl.setStyleSheet(f"""
             color: {C.ACC};
             background: {C.PANEL2};
             border: 1px solid {C.BORDER_B};
             border-radius: 8px;
             padding: 6px 4px;
-            letter-spacing: 10px;
+            letter-spacing: 0px;
         """)
         self._key_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(self._key_lbl)
@@ -2873,7 +2892,7 @@ class RemoteKeyOverlay(QWidget):
                     border: 1px solid {C.BORDER_B};
                     border-radius: 8px;
                     padding: 6px 4px;
-                    letter-spacing: 10px;
+                    letter-spacing: 0px;
                 """)
                 self._timer_lbl.setStyleSheet(
                     f"color: {C.TEXT_MED}; background: transparent;"
@@ -3436,6 +3455,7 @@ class MainWindow(QMainWindow):
     _state_sig      = pyqtSignal(str)
     _content_sig    = pyqtSignal(str, str)   # (title, text) — thread-safe content display
     _reconfig_sig   = pyqtSignal()           # trigger setup overlay from any thread
+    _provider_state_sig = pyqtSignal(str)
     _camera_sig     = pyqtSignal(bytes)      # show camera frame preview (small overlay)
     _cam_stream_sig = pyqtSignal(bool)       # True=start live stream, False=stop
     _cam_frame_sig  = pyqtSignal(bytes)      # live camera frame → HUD area
@@ -3443,6 +3463,7 @@ class MainWindow(QMainWindow):
     _hands_sig      = pyqtSignal()           # show the hands board panel (thread-safe)
     _confirm_sig    = pyqtSignal(str, str)   # (title, detail) — irreversible-action gate
     _confirm_hide_sig = pyqtSignal()
+    _phone_connected_sig = pyqtSignal()
     _wake_dl_sig    = pyqtSignal(bool, str)  # wake-word install finished (ok, message)
 
     def __init__(self, face_path: str):
@@ -3467,13 +3488,18 @@ class MainWindow(QMainWindow):
         self.on_voice_change = None
         self.on_audio_device_change = None
         self.on_personality_change = None
+        self.on_provider_change = None
+        self._provider_dialog = None
         self._confirm_overlay = None
         self.get_plugins = None
         self.get_plugin_settings = None
         self.on_wake_toggle = None
         self.on_wake_manual = None
         self.wake_get_state = None
-        self._muted = False
+        self._muted = True
+        self._hands_free = False
+        self.on_remote_cancelled = None
+        self._phone_connected_sig.connect(self.notify_phone_connected)
         self._current_file = None
         self._remote_overlay = None
         self._customize_overlay = None
@@ -3554,6 +3580,7 @@ class MainWindow(QMainWindow):
         self._metric_tmr=QTimer(self); self._metric_tmr.timeout.connect(self._update_metrics); self._metric_tmr.start(2000)
         self._log_sig.connect(self._log.append_log); self._state_sig.connect(self._apply_state)
         self._content_sig.connect(self._show_content); self._reconfig_sig.connect(self._show_setup)
+        self._provider_state_sig.connect(self._set_provider_badge, Qt.ConnectionType.QueuedConnection)
         self._camera_sig.connect(self._show_camera_frame); self._confirm_sig.connect(self._show_confirm_banner); self._confirm_hide_sig.connect(self._hide_confirm_banner)
         self._cam_stream_sig.connect(self._on_cam_stream); self._cam_frame_sig.connect(self._on_cam_frame)
         self._clipboard_sig.connect(self._show_clipboard_panel); self._hands_sig.connect(self.show_hands_board); self._wake_dl_sig.connect(self._on_wake_install_done)
@@ -3562,7 +3589,8 @@ class MainWindow(QMainWindow):
         self._clipboard_panel=ClipboardPanel(self.centralWidget()); self._clipboard_panel.action_requested.connect(self._on_clipboard_action)
         QApplication.clipboard().dataChanged.connect(self._on_clipboard_changed)
         self._overlay=None; self._ready=self._check_config()
-        if not self._ready: self._show_setup()
+        self._refresh_provider_badge()
+        if not self._ready: QTimer.singleShot(0, self._show_setup)
         QShortcut(QKeySequence("F4"),self).activated.connect(self._toggle_mute)
         QShortcut(QKeySequence("F11"),self).activated.connect(self._toggle_fullscreen)
         self._escape_shortcut = QShortcut(QKeySequence("Escape"), self)
@@ -4218,6 +4246,13 @@ class MainWindow(QMainWindow):
         self._right_detail=QLabel("Ready for your next command.")
         self._right_detail.setWordWrap(True); self._right_detail.setFont(QFont("Segoe UI",8)); self._right_detail.setStyleSheet(f"color:{C.TEXT_MED};background:transparent;")
         l.addWidget(self._right_detail)
+        self._provider_badge = QLabel("Chat: not configured | Live voice: Gemini (separate)")
+        self._provider_badge.setTextFormat(Qt.TextFormat.PlainText)
+        self._provider_badge.setWordWrap(True)
+        self._provider_badge.setMinimumWidth(0)
+        self._provider_badge.setFont(QFont("Segoe UI", 8))
+        self._provider_badge.setStyleSheet(f"color:{C.TEXT_MED};background:transparent;")
+        l.addWidget(self._provider_badge)
         row=QHBoxLayout(); row.setSpacing(5)
         for txt,slot in [("MUTE",self._toggle_mute),("INTERRUPT",self._do_interrupt)]:
             b=QPushButton(txt); b.setFixedHeight(30); b.setCursor(Qt.CursorShape.PointingHandCursor); b.setFont(QFont("Segoe UI",7,QFont.Weight.Bold)); b.setStyleSheet(btn_css if 'btn_css' in locals() else f"QPushButton{{color:{C.TEXT_MED};background:rgba(0,18,30,190);border:1px solid {C.BORDER};border-radius:6px;}} QPushButton:hover{{color:{C.PRI};border-color:{C.PRI_DIM};}}") ; b.clicked.connect(slot); row.addWidget(b)
@@ -4470,9 +4505,17 @@ class MainWindow(QMainWindow):
         self._mute_btn.setFixedSize(46, 46)
         self._mute_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._mute_btn.setFont(QFont("Segoe UI Emoji", 15, QFont.Weight.Bold))
-        self._mute_btn.clicked.connect(self._toggle_mute)
+        self._mute_btn.setToolTip("Hold to talk. Hands-free listening must be enabled separately.")
+        self._mute_btn.setAccessibleName("Hold to talk")
+        self._mute_btn.pressed.connect(lambda: self._push_to_talk(True))
+        self._mute_btn.released.connect(lambda: self._push_to_talk(False))
         row.addWidget(self._mute_btn, 0)
         self._style_mute_btn()
+        self._hands_free_btn = QPushButton("Hands-free OFF")
+        self._hands_free_btn.setCheckable(True)
+        self._hands_free_btn.setToolTip("Continuously send microphone audio while enabled; no recordings saved locally.")
+        self._hands_free_btn.toggled.connect(self._set_hands_free)
+        row.addWidget(self._hands_free_btn)
 
         # Dedicated interrupt / stop control. This is separate from mute so the
         # user can immediately cancel an active response or tool operation.
@@ -4714,6 +4757,8 @@ class MainWindow(QMainWindow):
         if not self.on_remote_clicked:
             self._log.append_log("SYS: Dashboard not running — remote unavailable.")
             return
+        if self._remote_overlay:
+            self._remote_overlay._do_close()
         result = self.on_remote_clicked()
         if not result:
             self._log.append_log("SYS: Could not generate remote key.")
@@ -4722,8 +4767,6 @@ class MainWindow(QMainWindow):
         key    = result[1]
         auto   = result[2] if len(result) >= 3 else ""
         manual = result[3] if len(result) >= 4 else url
-        if self._remote_overlay:
-            self._remote_overlay._do_close()
         cw  = self.centralWidget()
         ow, oh = RemoteKeyOverlay._OW, RemoteKeyOverlay._OH
         ov  = RemoteKeyOverlay(url, key, auto_login_url=auto, manual_url=manual,
@@ -4735,6 +4778,7 @@ class MainWindow(QMainWindow):
             ow, oh,
         )
         ov.closed.connect(lambda: setattr(self, '_remote_overlay', None))
+        ov.closed.connect(lambda: self.on_remote_cancelled and self.on_remote_cancelled())
         ov.show()
         self._remote_overlay = ov
         self._log.append_log(f"SYS: Remote key generated — manual: {manual or url}")
@@ -4990,8 +5034,52 @@ class MainWindow(QMainWindow):
         )
         ov.on_preview = self._preview_ui_color
         ov.saved.connect(self._apply_name_update)
+        ov.vision_privacy_requested.connect(self._open_vision_privacy)
+        ov.providers_requested.connect(lambda: self._open_provider_settings())
         ov.show()
         self._customize_overlay = ov
+
+    def _open_vision_privacy(self):
+        self._operator_panel.show_vision_privacy()
+
+    def _open_provider_settings(self, first_run=False):
+        from core.provider_ui import ProviderDialog
+        existing = getattr(self, "_provider_dialog", None)
+        if existing is not None and existing.isVisible() and (not first_run or existing.first_run):
+            existing.present()
+            return existing
+        if existing is not None:
+            existing.close()
+            existing.deleteLater()
+        dialog = ProviderDialog(self, first_run=first_run, initial_system=_read_full_config())
+        dialog.changed.connect(self._on_provider_changed)
+        if first_run:
+            dialog.on_setup = self._on_provider_setup_done
+        self._provider_dialog = dialog
+        dialog.present()
+        return dialog
+
+    def _on_provider_changed(self, profile_id):
+        self._refresh_provider_badge()
+        callback = self.on_provider_change
+        if callback:
+            try:
+                callback(str(profile_id))
+            except Exception:
+                self._log.append_log("ERR: Provider settings saved, but runtime refresh failed. Retry the provider selection.")
+
+    def _set_provider_badge(self, label):
+        self._provider_badge.setText(str(label)[:320])
+
+    def _refresh_provider_badge(self):
+        from core.provider_ui import get_provider_store
+        from core.providers import provider_label
+        try:
+            selected = get_provider_store().selected("chat")
+            label = f"Chat: {provider_label(selected['provider'])} / {selected['model']}" if selected else "Chat: not configured"
+        except Exception:
+            label = "Chat: configuration unavailable"
+        self._set_provider_badge(label + " | Live voice: Gemini (separate)")
 
     def _preview_ui_color(self, hex_color: str):
         """Live preview — paints the whole interface the new colour (does NOT write to config)."""
@@ -5185,9 +5273,26 @@ class MainWindow(QMainWindow):
             self.on_interrupt()
 
     def _toggle_mute(self):
-        self._muted = not self._muted
+        self._set_hands_free(self._muted)
+
+    def _set_mic_active(self, active):
+        self._muted = not active
         self.hud.muted = self._muted
         self._style_mute_btn()
+        self._apply_state("MUTED" if self._muted else "LISTENING")
+
+    def _push_to_talk(self, pressed):
+        if self._hands_free:
+            return
+        self._set_mic_active(pressed)
+
+    def _set_hands_free(self, enabled):
+        self._hands_free = bool(enabled)
+        self._hands_free_btn.blockSignals(True)
+        self._hands_free_btn.setChecked(enabled)
+        self._hands_free_btn.blockSignals(False)
+        self._hands_free_btn.setText("Hands-free ON" if enabled else "Hands-free OFF")
+        self._set_mic_active(enabled)
         if self._muted:
             self._apply_state("MUTED")
             self._log.append_log("SYS: Microphone muted.")
@@ -5204,7 +5309,7 @@ class MainWindow(QMainWindow):
             return
         if self._muted:
             btn.setText("🔇")
-            btn.setToolTip("Microphone muted (F4)")
+            btn.setToolTip("Hold to talk; F4 explicitly toggles hands-free listening")
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background: #140006; color: {C.MUTED_C};
@@ -5258,37 +5363,59 @@ class MainWindow(QMainWindow):
     def _check_config(self) -> bool:
         if not API_FILE.exists(): return False
         try:
+            from core.provider_ui import get_provider_store
             d = json.loads(API_FILE.read_text(encoding="utf-8"))
-            return bool(d.get("gemini_api_key")) and bool(d.get("os_system"))
+            return bool(d.get("os_system")) and get_provider_store().has_configuration()
         except Exception:
             return False
 
     def _show_setup(self):
-        ov = SetupOverlay(self.centralWidget())
-        cw = self.centralWidget()
-        ow, oh = 460, 390
-        ov.setGeometry(
-            (cw.width()  - ow) // 2,
-            (cw.height() - oh) // 2,
-            ow, oh,
-        )
-        ov.done.connect(self._on_setup_done)
-        ov.show()
-        self._overlay = ov
+        self._open_provider_settings(first_run=True)
+
+    def _on_provider_setup_done(self, values):
+        from memory.config_manager import _save_consent_fields
+        try:
+            # The shared writer locks and merges fresh JSON, retaining credentials,
+            # voice, personality, privacy and unrelated application preferences.
+            _save_consent_fields({key: values[key] for key in ("assistant_name", "user_name", "os_system")})
+        except Exception:
+            self._log.append_log("ERR: Assistant settings could not be saved. Setup remains open.")
+            return False
+        self._ready = self._check_config()
+        if not self._ready:
+            return False
+        self._assistant_name = values["assistant_name"]
+        display = self._assistant_name.upper()
+        self.setWindowTitle(f"{display} — {APP_VERSION}")
+        self._title_lbl.setText(display)
+        self._sub_lbl.setText("Just A Rather Very Intelligent System" if display in ("JARVIS", "J.A.R.V.I.S") else "Personal AI Assistant")
+        self._log._ai_name_lc = self._assistant_name.lower()
+        self.hud._assistant_name = display
+        self._refresh_provider_badge()
+        self._apply_state("MUTED")
+        self._log.append_log("SYS: Provider setup complete. Primary chat is ready; live voice is configured separately.")
+        return True
 
     def _on_setup_done(self, key: str, os_name: str):
-        os.makedirs(CONFIG_DIR, exist_ok=True)
-        data = _read_full_config()
-        data["gemini_api_key"] = key
-        data["os_system"] = os_name
-        data.setdefault("personality", "tony")
-        API_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
-        self._ready = True
+        # Kept for callers of the legacy overlay; it uses the same encrypted
+        # credential store as provider setup and never writes a plaintext key.
+        from memory.config_manager import save_api_keys, _save_consent_fields
+        try:
+            save_api_keys(key)
+            _save_consent_fields({"os_system": os_name})
+        except Exception:
+            self._log.append_log("ERR: Encrypted credential or assistant setup could not be saved. Existing settings were preserved.")
+            return
+        self._ready = self._check_config()
+        if not self._ready:
+            self._log.append_log("ERR: Select a configured primary chat provider before continuing.")
+            return
         if self._overlay:
             self._overlay.hide()
             self._overlay = None
         self._apply_state("LISTENING")
         self._assistant_name = _read_full_config().get("assistant_name", "JARVIS") or "JARVIS"
+        self._on_provider_changed("")
         self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. {self._assistant_name} online.")
 
 
@@ -5314,8 +5441,22 @@ class JarvisUI:
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
         self._win = MainWindow(face_path)
+        from core.operator_ui import OperatorPanel
+        self.operator = OperatorPanel(self._win)
+        self._win._operator_panel = self.operator
+        self.operator.setStyleSheet(f"QWidget {{ background: {C.PANEL}; color: {C.TEXT}; }} "
+                                    f"QPushButton {{ padding: 3px 6px; border: 1px solid {C.BORDER}; border-radius: 3px; }}")
+        self._win.statusBar().addWidget(self.operator, 1)
+        from core.repair_ui import RepairPanel
+        self.repair_panel = RepairPanel(self._win)
+        self.operator.on_repair = self.show_repair_panel
         self.root = _RootShim(self._app)
         self._win.show()
+
+    def show_repair_panel(self):
+        self.repair_panel.show()
+        self.repair_panel.raise_()
+        self.repair_panel.activateWindow()
 
     @property
     def muted(self) -> bool:
@@ -5385,6 +5526,18 @@ class JarvisUI:
         except Exception:
             pass
 
+    @property
+    def on_provider_change(self):
+        return self._win.on_provider_change
+
+    @on_provider_change.setter
+    def on_provider_change(self, callback):
+        self._win.on_provider_change = callback
+
+    def set_provider_state(self, label: str) -> None:
+        """Thread-safe primary chat / live voice status, containing no credentials."""
+        self._win._provider_state_sig.emit(str(label)[:320])
+
     def show_confirm(self, title: str, detail: str) -> None:
         """Thread-safe: raise the irreversible-action gate. Called from action
         handlers running in executor threads, so it goes through a signal."""
@@ -5444,7 +5597,7 @@ class JarvisUI:
             pass
 
     def notify_phone_connected(self) -> None:
-        self._win.notify_phone_connected()
+        self._win._phone_connected_sig.emit()
 
     def show_hands_board(self) -> None:
         """Thread-safe: show the embedded barehands panel."""
@@ -5460,6 +5613,7 @@ class JarvisUI:
         self._win._log_sig.emit(text)
 
     def wait_for_api_key(self):
+        """Legacy method name: wait for a configured primary chat and assistant setup."""
         while not self._win._ready:
             time.sleep(0.1)
 
@@ -5468,7 +5622,7 @@ class JarvisUI:
         self._win._content_sig.emit(title[:48], text[:4000])
 
     def prompt_reconfig(self):
-        """Thread-safe: show the API key setup overlay (e.g. after an auth error)."""
+        """Thread-safe: reopen provider setup (e.g. after an authentication error)."""
         self._win._ready = False
         self._win._reconfig_sig.emit()
 

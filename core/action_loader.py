@@ -29,14 +29,16 @@ import importlib.util
 import inspect
 import re
 import sys
-import traceback
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
+_LOG = logging.getLogger(__name__)
+
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 _DEFAULT_PARAMS = {"type": "OBJECT", "properties": {}}
-_CTX_KEYS = ("player", "speak", "response", "session_memory")
+_CTX_KEYS = ("player", "speak", "response", "session_memory", "cancel_event")
 
 
 @dataclass
@@ -51,7 +53,7 @@ class ActionRecord:
 
 
 class ActionRegistry:
-    def __init__(self, actions: dict[str, ActionRecord], logger: Callable[[str], None]):
+    def __init__(self, actions: dict[str, ActionRecord], logger: Callable[[str], None] | None):
         self._actions = actions          # name -> ActionRecord, VALID entries only
         self._all_records: list[ActionRecord] = []
         self._logger = logger
@@ -77,8 +79,9 @@ class ActionRegistry:
         try:
             return _call_handler(rec.handler, parameters, ctx or {}) or "Done."
         except Exception as e:
-            self._logger(f"Action '{name}' crashed during run(): {e}")
-            traceback.print_exc()
+            _LOG.exception("Action '%s' crashed during run(): %s", name, e)
+            if self._logger is not None:
+                self._logger(f"Action '{name}' crashed during run(): {e}")
             return f"Tool '{name}' failed: {e}"
 
 
@@ -127,7 +130,7 @@ def _validate(module, filename: str) -> ActionRecord:
 
 
 def discover_actions(actions_dir: Path, reserved_names: set[str] | None = None,
-                     logger: Callable[[str], None] = print) -> ActionRegistry:
+                     logger: Callable[[str], None] | None = None) -> ActionRegistry:
     """
     Scans actions_dir for *.py files (skips files starting with '_'). A file is
     only treated as an action if it exposes a module-level TOOL dict; files
@@ -144,6 +147,7 @@ def discover_actions(actions_dir: Path, reserved_names: set[str] | None = None,
     for path in files:
         if path.name.startswith("_"):
             continue
+        failure_info = None
         try:
             module_name = f"actions.{path.stem}"
             # Reuse the already-imported module when present so handlers are the
@@ -177,17 +181,21 @@ def discover_actions(actions_dir: Path, reserved_names: set[str] | None = None,
         except Exception as e:
             rec = ActionRecord(name=path.stem, file=path.name,
                                error=f"Failed to load: {e}")
-            traceback.print_exc()
+            failure_info = sys.exc_info()
 
         all_records.append(rec)
         if rec.valid:
             valid[rec.name] = rec
-            logger(f"Action loaded: {rec.name} ({path.name})")
+            _LOG.debug("Action loaded: %s (%s)", rec.name, path.name)
         else:
             # Only log a rejection if the file actually tried to be an action.
-            logger(f"Action rejected: {path.name} — {rec.error}")
+            _LOG.log(logging.ERROR if failure_info else logging.WARNING,
+                     "Action rejected: %s — %s", path.name, rec.error,
+                     exc_info=failure_info)
+            if logger is not None:
+                logger(f"Action rejected: {path.name} — {rec.error}")
 
     registry = ActionRegistry(valid, logger)
     registry._all_records = all_records
-    logger(f"Action discovery complete: {len(valid)} active.")
+    _LOG.debug("Action discovery complete: %d active.", len(valid))
     return registry

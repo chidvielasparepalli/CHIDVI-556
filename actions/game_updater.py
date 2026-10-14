@@ -220,9 +220,8 @@ def _click_first_profile_by_screenshot() -> bool:
         colorful = (max_c > 60) & ((max_c - min_c) > 40)
 
         if not colorful.any():
-            print("[GameUpdater] ⚠️ Avatar colour not found — clicking by guess")
-            pyautogui.click(wx + ww // 2 - ww // 6, wy + wh // 2)
-            return True
+            print("[GameUpdater] Avatar target is ambiguous; select the Steam profile manually.")
+            return False
 
         cols = np.where(colorful.any(axis=0))[0]
         rows = np.where(colorful.any(axis=1))[0]
@@ -236,8 +235,9 @@ def _click_first_profile_by_screenshot() -> bool:
         abs_x = wx + search_x1 + int(block_cols.mean())
         abs_y = wy + search_y1 + int(rows.mean())
         print(f"[GameUpdater] 🎯 Profile avatar ({abs_x}, {abs_y}) — clicking")
-        pyautogui.click(abs_x, abs_y)
-        return True
+        # Colour alone does not identify an account or establish target confidence.
+        print("[GameUpdater] Select the intended Steam account manually, then continue.")
+        return False
 
     except ImportError as e:
         print(f"[GameUpdater] ⚠️ Missing library: {e}")
@@ -297,7 +297,7 @@ def _select_drive_in_dialog(dialog, drive_letter: str) -> bool:
         try:
             for ctrl in dialog.descendants(control_type=control_type):
                 if target in ctrl.window_text().upper():
-                    ctrl.click_input()
+                    _click_control(ctrl)
                     print(f"[GameUpdater] ✅ Drive selected ({control_type}): {ctrl.window_text()}")
                     return True
         except Exception:
@@ -320,11 +320,17 @@ def _select_drive_in_dialog(dialog, drive_letter: str) -> bool:
         for ctrl in dialog.descendants():
             txt = ctrl.window_text().upper()
             if f"{target}:" in txt and len(txt) < 80:
-                ctrl.click_input()
+                _click_control(ctrl)
                 return True
     except Exception:
         pass
     return False
+
+
+def _click_control(control):
+    from core.desktop_control import get_service
+    rect = control.rectangle()
+    get_service().click((rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2)
 
 
 def _click_button(window, keywords: list[str]) -> bool:
@@ -333,7 +339,7 @@ def _click_button(window, keywords: list[str]) -> bool:
             try:
                 txt = btn.window_text().lower().strip()
                 if txt in keywords or any(kw in txt for kw in keywords):
-                    btn.click_input()
+                    _click_control(btn)
                     return True
             except Exception:
                 continue
@@ -343,44 +349,9 @@ def _click_button(window, keywords: list[str]) -> bool:
 
 
 def _handle_install_dialog_pyautogui(game_name: str, best_drive: dict) -> str:
-    try:
-        import pyautogui
-        import pygetwindow as gw
-    except ImportError:
-        return (f"Install dialog opened for '{game_name}'. "
-                f"Please select '{best_drive['letter']}:' and click Install manually.")
-
-    pyautogui.FAILSAFE = False
-    drive_label = f"{best_drive['letter']}:"
-    install_win = None
-
-    for _ in range(30):
-        time.sleep(0.5)
-        for w in gw.getAllWindows():
-            if ("install" in w.title.lower() or "steam" in w.title.lower()) \
-                    and w.width > 300 and w.visible:
-                install_win = w
-                break
-        if install_win:
-            break
-
-    if not install_win:
-        return f"Please select '{drive_label}' and click Install in Steam for '{game_name}'."
-
-    try:
-        install_win.activate()
-        time.sleep(0.4)
-    except Exception:
-        pass
-
-    wx, wy = install_win.left, install_win.top
-    ww, wh = install_win.width, install_win.height
-    pyautogui.click(wx + int(ww * 0.35), wy + int(wh * 0.45))
-    time.sleep(0.2)
-    pyautogui.typewrite(best_drive["letter"], interval=0.05)
-    time.sleep(0.2)
-    pyautogui.click(wx + int(ww * 0.72), wy + int(wh * 0.88))
-    return f"Attempted drive {drive_label} selection and Install click for '{game_name}'."
+    # shortcut: no measured native target exists here; use the accessible dialog or manual input.
+    return (f"Select '{best_drive['letter']}:' and click Install in Steam for '{game_name}'. "
+            "Automatic coordinate guesses are disabled.")
 
 
 def _handle_install_dialog(game_name: str) -> str:

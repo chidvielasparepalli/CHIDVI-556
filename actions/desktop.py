@@ -24,9 +24,8 @@ def _get_base_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 def _get_api_key() -> str:
-    path = _get_base_dir() / "config" / "api_keys.json"
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from memory.config_manager import get_gemini_key
+    return get_gemini_key() or ""
     
 def _get_desktop() -> Path:
     if _OS == "Linux":
@@ -103,8 +102,8 @@ def _execute_generated_code(code: str, player=None) -> str:
 
 def _ask_gemini_for_desktop_action(task: str) -> str:
 
-    from google import genai as _genai
-    _client = _genai.Client(api_key=_get_api_key())
+    from core.provider_client import configured_client
+    _client = configured_client(role="chat", task_kind="planning")
 
     desktop = str(_get_desktop())
 

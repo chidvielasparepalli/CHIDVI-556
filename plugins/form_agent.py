@@ -40,16 +40,16 @@ _ACTIONS = {"CLICK", "TYPE", "KEY", "SCROLL", "ASK", "DONE", "WAIT"}
 
 
 def _get_api_key() -> str:
-    base = Path(__file__).resolve().parent.parent
-    cfg = base / "config" / "api_keys.json"
-    try:
-        return json.loads(cfg.read_text(encoding="utf-8"))["gemini_api_key"]
-    except Exception:
-        return ""
+    from memory.config_manager import get_gemini_key
+    return get_gemini_key() or ""
 
 
 def _screenshot_png() -> bytes:
     """Full-screen PNG bytes via pyautogui (same primitive computer_control uses)."""
+    from core.desktop_control import get_service
+    if not get_service().cloud_vision_enabled:
+        raise RuntimeError("Cloud screen analysis is disabled in the desktop UI.")
+    get_service().check_cancelled()
     img = pyautogui.screenshot()
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -58,14 +58,8 @@ def _screenshot_png() -> bytes:
 
 def _vision_action(img_bytes: bytes) -> dict:
     """Ask Gemini what to do next. Returns a dict with 'action' + fields."""
-    from google import genai
+    from core.provider_client import configured_client
     from google.genai import types as gtypes
-
-    key = _get_api_key()
-    if not key:
-        return {"action": "ASK", "text": "I need a Gemini API key to read the screen."}
-
-    client = genai.Client(api_key=key)
     history = "\n".join(STATE["log"][-6:])
     prompt = f"""You are JARVIS's hands, driving a computer to complete ONE task.
 
@@ -97,6 +91,7 @@ Rules:
 Return ONLY the JSON."""
 
     try:
+        client = configured_client(role="vision", task_kind="forms")
         resp = client.models.generate_content(
             model="gemini-flash-latest",
             contents=[
@@ -116,9 +111,7 @@ def _act(decision: dict, player) -> str:
     a = (decision.get("action") or "").upper()
     if a == "CLICK":
         try:
-            pyautogui.click(int(decision["x"]), int(decision["y"]))
-            time.sleep(0.4)
-            return f"Clicked at {decision['x']},{decision['y']}."
+            return "Click refused: legacy form targets have no confidence or freshness evidence. Use browser_control."
         except Exception as e:
             return f"Click failed: {e}"
     if a == "TYPE":
@@ -159,18 +152,8 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
     action = (parameters.get("action") or "start").strip().lower()
 
     if action == "start":
-        task = (parameters.get("task") or "").strip() or None
-        if STATE["running"]:
-            return "The form agent is already working. Ask it: status."
-        if not _PYAUTOGUI:
-            return "Sir, pyautogui isn't installed — I can't drive the screen."
-        STATE["task"] = task or "complete and submit the form on screen"
-        STATE["log"] = []
-        STATE["running"] = True
-        STATE["reply"] = None
-        threading.Thread(target=_loop, args=(player,), daemon=True).start()
-        return ("On it. I'm reading the screen and filling the form — "
-                "narrating as I go. Say 'status' any time.")
+        return ("The legacy background form loop is disabled because it bypasses task cancellation and target verification. "
+                "Use browser_control inspect, smart_type and smart_click through the current CHIDVI task; ask for missing information and confirm submission on the desktop.")
 
     if action == "status":
         if not STATE["running"]:
@@ -287,5 +270,5 @@ PLUGIN = {
 if __name__ == "__main__":
     # Self-check: dispatcher rejects garbage without touching the screen.
     assert "Use start" in run({"action": "bogus"})
-    assert "pyautogui" in run({"action": "start"}) or "already" in run({"action": "start"})
+    assert "disabled" in run({"action": "start"})
     print("self-check OK")

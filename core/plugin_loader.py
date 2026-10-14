@@ -12,12 +12,14 @@ import importlib.util
 import inspect
 import re
 import sys
-import traceback
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
 from memory.config_manager import get_plugin_enabled, get_plugin_config
+
+_LOG = logging.getLogger(__name__)
 
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 _DEFAULT_PARAMS = {"type": "OBJECT", "properties": {}}
@@ -36,7 +38,7 @@ class PluginRecord:
 
 
 class PluginRegistry:
-    def __init__(self, plugins: dict[str, PluginRecord], logger: Callable[[str], None]):
+    def __init__(self, plugins: dict[str, PluginRecord], logger: Callable[[str], None] | None):
         self._plugins = plugins          # name -> PluginRecord, VALID entries only
         self._all_records: list[PluginRecord] = []   # valid + invalid, for UI listing
         self._logger = logger
@@ -66,8 +68,9 @@ class PluginRegistry:
         try:
             return _call_run(rec.run, parameters, player, session_memory) or "Done."
         except Exception as e:
-            self._logger(f"Plugin '{name}' crashed during run(): {e}")
-            traceback.print_exc()
+            _LOG.exception("Plugin '%s' crashed during run(): %s", name, e)
+            if self._logger is not None:
+                self._logger(f"Plugin '{name}' crashed during run(): {e}")
             return f"Sir, the '{name}' plugin failed: {e}"
 
     # -- called by ui.py's settings tab to render per-plugin config forms --
@@ -163,7 +166,7 @@ def _validate(module, filename: str) -> PluginRecord:
 
 
 def discover_plugins(plugins_dir: Path, core_tool_names: set[str],
-                      logger: Callable[[str], None] = print) -> PluginRegistry:
+                      logger: Callable[[str], None] | None = None) -> PluginRegistry:
     """
     Scans plugins_dir for *.py files (skips files starting with '_', e.g. __init__.py,
     _template.py, and any shared-helper modules an author prefixes with '_').
@@ -179,6 +182,7 @@ def discover_plugins(plugins_dir: Path, core_tool_names: set[str],
     for path in files:
         if path.name.startswith("_"):
             continue
+        failure_info = None
         try:
             module_name = f"plugins.{path.stem}"
             spec = importlib.util.spec_from_file_location(module_name, path)
@@ -205,17 +209,21 @@ def discover_plugins(plugins_dir: Path, core_tool_names: set[str],
         except Exception as e:
             rec = PluginRecord(name=path.stem, file=path.name,
                                 error=f"Failed to load: {e}")
-            traceback.print_exc()
+            failure_info = sys.exc_info()
 
         all_records.append(rec)
         if rec.valid:
             valid[rec.name] = rec
-            logger(f"Plugin loaded: {rec.name} ({path.name})")
+            _LOG.debug("Plugin loaded: %s (%s)", rec.name, path.name)
         else:
-            logger(f"Plugin rejected: {path.name} — {rec.error}")
+            _LOG.log(logging.ERROR if failure_info else logging.WARNING,
+                     "Plugin rejected: %s — %s", path.name, rec.error,
+                     exc_info=failure_info)
+            if logger is not None:
+                logger(f"Plugin rejected: {path.name} — {rec.error}")
 
     registry = PluginRegistry(valid, logger)
     registry._all_records = all_records
-    logger(f"Plugin discovery complete: {len(valid)} active, "
-           f"{len(all_records) - len(valid)} rejected, {len(all_records)} total.")
+    _LOG.debug("Plugin discovery complete: %d active, %d rejected, %d total.",
+               len(valid), len(all_records) - len(valid), len(all_records))
     return registry

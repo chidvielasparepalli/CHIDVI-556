@@ -58,8 +58,8 @@ _YT_VIDEO_FILTER = "EgIQAQ%3D%3D"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from memory.config_manager import get_gemini_key
+    return get_gemini_key() or ""
 
 
 def _open_url(url: str) -> None:
@@ -167,10 +167,10 @@ def _get_transcript(video_id: str) -> str | None:
 
 
 def _summarize_with_gemini(transcript: str, video_url: str) -> str:
-    from google import genai as _genai
+    from core.provider_client import configured_client
     from google.genai import types
 
-    _client = _genai.Client(api_key=_get_api_key())
+    _client = configured_client(role="chat", task_kind="summarization")
     max_chars = 80000
     truncated = transcript[:max_chars] + ("..." if len(transcript) > max_chars else "")
     response  = _client.models.generate_content(

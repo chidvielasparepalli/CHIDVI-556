@@ -12,11 +12,8 @@ OUTPUT_DIR = BASE_DIR / "generated_images"
 MODEL = "gemini-3.1-flash-image"
 
 def _api_key() -> str:
-    with API_CONFIG_PATH.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    key = data.get("gemini_api_key") or data.get("GEMINI_API_KEY")
-    if not key: raise ValueError("Gemini API key is missing from config/api_keys.json.")
-    return key
+    from memory.config_manager import get_gemini_key
+    return get_gemini_key() or ""
 
 def _safe_filename(filename: str = "") -> str:
     name = Path(filename).name.strip()
@@ -68,8 +65,8 @@ def create_image(prompt: str = "", filename: str = "", aspect_ratio: str = "1:1"
             _say(speak, player, updates[min(i, len(updates)-1)]); i += 1
     thread = threading.Thread(target=narrate, daemon=True); thread.start()
     try:
-        from google import genai
-        client = genai.Client(api_key=_api_key())
+        from core.provider_client import configured_client
+        client = configured_client(role="chat", task_kind="image_generation")
         response = client.models.generate_content(model=MODEL, contents=prompt, config={"response_modalities":["TEXT","IMAGE"],"image_config":{"aspect_ratio":aspect_ratio,"image_size":image_size}})
         part = _extract_image(response)
         if part is None:

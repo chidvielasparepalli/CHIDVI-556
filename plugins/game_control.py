@@ -47,12 +47,8 @@ def _settings(key, default=None):
 
 
 def _get_api_key() -> str:
-    base = Path(__file__).resolve().parent.parent
-    cfg = base / "config" / "api_keys.json"
-    try:
-        return json.loads(cfg.read_text(encoding="utf-8"))["gemini_api_key"]
-    except Exception:
-        return ""
+    from memory.config_manager import get_gemini_key
+    return get_gemini_key() or ""
 
 
 def _stop_event(player):
@@ -98,14 +94,8 @@ def _screenshot() -> tuple[bytes, dict] | None:
 def _vision(history: list[str], png: bytes) -> dict:
     """Ask Gemini what to do next. Returns a dict with 'action' + fields, or a
     WAIT fallback on any JSON/model failure (never raise out of the loop)."""
-    from google import genai
+    from core.provider_client import configured_client
     from google.genai import types as gtypes
-
-    key = _get_api_key()
-    if not key:
-        return {"action": "DONE", "reason": "no Gemini API key"}
-
-    client = genai.Client(api_key=key)
     hist = "\n".join(history[-5:])
     prompt = f"""
 You are driving a mobile arena shooter (Free Fire / BGMI / COD Mobile) to WIN.
@@ -135,6 +125,7 @@ Rules:
   never resolves.
 Return ONLY the JSON."""
     try:
+        client = configured_client(role="vision", task_kind="gaming")
         resp = client.models.generate_content(
             model=_MODEL,
             contents=[
@@ -193,9 +184,11 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
         game = (parameters.get("game") or "").strip()
         if STATE["running"]:
             return "Already driving the game — say: status."
-        key = _get_api_key()
-        if not key:
-            return "Sir, I need a Gemini API key in config to see the game."
+        from core.provider_client import configured_client
+        try:
+            configured_client(role="vision", task_kind="gaming").close()
+        except Exception:
+            return "Configure a supported vision provider in AI Providers before starting the game loop."
         STATE["game"] = game or "drive this match and win"
         STATE["log"] = []
         STATE["running"] = True

@@ -1,10 +1,9 @@
 """
 Screen & webcam capture for JARVIS vision.
 
-Provides the two capture entry points main.py uses — `_capture_screen()` and
-`_capture_camera()` — plus their helpers (compression, camera auto-detection,
-config access). main.py grabs a frame here on demand, then injects it into the
-main Gemini Live session; there is no separate vision session here.
+`capture_screen()` returns a validated local PNG and its physical display
+geometry. `_capture_screen()` retains the compressed tuple used by older
+callers. Capture does not require an analysis backend or upload/save images.
 """
 from __future__ import annotations
 
@@ -14,6 +13,8 @@ import sys
 from pathlib import Path
 
 import numpy as np
+from core.desktop_control import physical_coordinates
+from core.task_control import check_task_cancelled
 
 try:
     import cv2
@@ -85,18 +86,57 @@ def _compress(img_bytes: bytes, source_format: str = "PNG") -> tuple[bytes, str]
         return img_bytes, f"image/{source_format.lower()}"
 
 
-def _capture_screen() -> tuple[bytes, str]:
-
+def capture_screen(monitor: int = 1) -> dict:
+    """Capture one display (1..N), or all displays (0), in physical pixels."""
+    if isinstance(monitor, bool) or not isinstance(monitor, int) or monitor < 0:
+        raise ValueError("Monitor must be an integer: 0 for all displays or 1..N for one display.")
     if not _MSS:
         raise RuntimeError("mss is not installed. Run: pip install mss")
+    if not _PIL:
+        raise RuntimeError("Pillow is required to validate screenshots. Run: pip install pillow")
 
-    with mss.mss() as sct:
-        monitors = sct.monitors          # [0] = all combined, [1..n] = real screens
-        target   = monitors[1] if len(monitors) > 1 else monitors[0]
-        shot     = sct.grab(target)
-        png      = mss.tools.to_png(shot.rgb, shot.size)
+    check_task_cancelled()
+    with physical_coordinates(), mss.mss() as sct:
+        monitors = sct.monitors
+        if len(monitors) < 2:
+            raise RuntimeError("No connected physical display is available for capture.")
+        if monitor >= len(monitors):
+            raise ValueError(f"Monitor {monitor} is unavailable; choose 0..{len(monitors) - 1}.")
+        target = {key: monitors[monitor][key] for key in ("left", "top", "width", "height")}
+        if (any(isinstance(value, bool) or not isinstance(value, int) for value in target.values())
+                or target["width"] <= 0 or target["height"] <= 0):
+            raise RuntimeError("Display dimensions are invalid; screenshot was not captured.")
+        size = (target["width"], target["height"])
+        check_task_cancelled()
+        shot = sct.grab(target)
+        if tuple(shot.size) != size:
+            raise RuntimeError("Screenshot dimensions do not match the selected physical display.")
+        rgb = shot.rgb
+        if not rgb or len(rgb) != size[0] * size[1] * 3:
+            raise RuntimeError("Screenshot pixels are empty or incomplete.")
+        png = mss.tools.to_png(rgb, size)
 
-    return _compress(png, "PNG")
+    if not isinstance(png, bytes) or not png:
+        raise RuntimeError("Screenshot encoding returned an empty or invalid image.")
+    try:
+        with PIL.Image.open(io.BytesIO(png)) as image:
+            if image.format != "PNG":
+                raise RuntimeError("Screenshot encoding did not return a valid PNG image.")
+            image.load()
+            if image.size != size:
+                raise RuntimeError("Decoded screenshot dimensions do not match the selected display.")
+            if all(low == high for low, high in image.convert("RGB").getextrema()):
+                raise RuntimeError("Screenshot is blank or uniform; show visible content on the selected display and retry.")
+    except (OSError, ValueError, SyntaxError) as exc:
+        raise RuntimeError("Screenshot image could not be decoded or validated.") from exc
+    check_task_cancelled()
+    return {"data": png, "mime_type": "image/png", "width": size[0], "height": size[1],
+            "monitor": monitor, "source_rect": target}
+
+
+def _capture_screen() -> tuple[bytes, str]:
+    frame = capture_screen()
+    return _compress(frame["data"], "PNG")
 
 
 def _cv2_backend() -> int:

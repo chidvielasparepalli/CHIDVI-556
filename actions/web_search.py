@@ -14,14 +14,14 @@ API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from memory.config_manager import get_gemini_key
+    return get_gemini_key() or ""
 
 
 def _gemini_search(query: str) -> str:
-    from google import genai
+    from core.provider_client import configured_client
 
-    client   = genai.Client(api_key=_get_api_key())
+    client   = configured_client(role="chat", task_kind="web_search")
     response = client.models.generate_content(
         model="gemini-flash-latest",
         contents=query,
@@ -120,9 +120,9 @@ def _gemini_headlines(n: int = 5) -> tuple[list[str], str]:
     Returns (headline_list, raw_text_for_display).
     """
     import re
-    from google import genai
+    from core.provider_client import configured_client
 
-    client = genai.Client(api_key=_get_api_key())
+    client = configured_client(role="chat", task_kind="web_search")
     response = client.models.generate_content(
         model="gemini-flash-latest",
         contents=f"Current world news: {n} headlines. Numbered list, titles only.",

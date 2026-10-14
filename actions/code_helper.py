@@ -19,13 +19,13 @@ GEMINI_MODEL       = "gemini-flash-latest"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from memory.config_manager import get_gemini_key
+    return get_gemini_key() or ""
 
 
 def _get_gemini(model: str = GEMINI_MODEL):
-    from google import genai
-    _c = genai.Client(api_key=_get_api_key())
+    from core.provider_client import configured_client
+    _c = configured_client(role="chat", task_kind="coding")
 
     class _W:
         def generate_content(self, contents):
@@ -456,10 +456,10 @@ def _screen_debug_action(description, file_path, player, speak=None) -> str:
             print(f"[Code] ⚠️ Could not read file: {err}")
 
     try:
-        from google import genai
+        from core.provider_client import configured_client
         from google.genai import types
 
-        client = genai.Client(api_key=_get_api_key())
+        client = configured_client(role="vision", task_kind="coding")
 
         image_bytes  = screenshot_path.read_bytes()
         image_base64 = _image_to_base64(screenshot_path)

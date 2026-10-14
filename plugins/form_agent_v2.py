@@ -8,9 +8,12 @@ from memory.memory_manager import search_memory, update_memory
 STATE={"running":False,"task":"","url":"","log":[],"reply":None,"lock":threading.Lock()}
 
 def _key():
-    try: return json.loads((Path(__file__).resolve().parent.parent/"config"/"api_keys.json").read_text())['gemini_api_key']
-    except: return ''
+    from memory.config_manager import get_gemini_key
+    return get_gemini_key() or ''
 def _shot():
+    from core.desktop_control import get_service
+    if not get_service().cloud_vision_enabled: raise RuntimeError('Cloud screen analysis is disabled in the desktop UI.')
+    get_service().check_cancelled()
     b=io.BytesIO(); pyautogui.screenshot().save(b,format='PNG'); return b.getvalue()
 def _mem():
     try: return search_memory('name email phone address city college education job company skills birthday preferences form',20)
@@ -21,9 +24,8 @@ def _save(q,a):
     except: pass
 
 def _decide(img):
-    from google import genai
+    from core.provider_client import configured_client
     from google.genai import types
-    if not _key(): return {'action':'ASK','text':'I need the Gemini API key to inspect the form.'}
     prompt=f'''You are CHIDVI's browser execution agent.
 TASK: {STATE['task']}
 URL: {STATE['url'] or '(current page)'}
@@ -32,7 +34,7 @@ RECENT ACTIONS:\n{chr(10).join(STATE['log'][-8:]) or '(none)'}
 
 Inspect the screenshot and return ONLY JSON for ONE action: CLICK x,y,reason; TYPE text,reason; KEY key,reason; SCROLL dir,reason; WAIT ms,reason; ASK text,reason; DONE. Use memory only for an exact/clear match. Never invent personal facts. If required info is missing or ambiguous, ASK. For payment, legal/government, purchases, or job/college applications, ASK for confirmation immediately before final submission.'''
     try:
-        r=genai.Client(api_key=_key()).models.generate_content(model='gemini-flash-latest',contents=[types.Part.from_bytes(data=img,mime_type='image/png'),prompt])
+        r=configured_client(role='vision',task_kind='forms').models.generate_content(model='gemini-flash-latest',contents=[types.Part.from_bytes(data=img,mime_type='image/png'),prompt])
         return json.loads(re.sub(r'^```(?:json)?|```$','',(r.text or '').strip(),flags=re.M).strip())
     except Exception as e: return {'action':'ASK','text':f'I could not reliably inspect the page: {e}'}
 
@@ -45,7 +47,7 @@ def _say(player,text):
 def _act(d):
     a=str(d.get('action','')).upper(); reason=str(d.get('reason','')).strip()
     try:
-        if a=='CLICK': pyautogui.click(int(d['x']),int(d['y']));time.sleep(.5);return reason or 'Clicked the target.'
+        if a=='CLICK': return 'Click refused: legacy form targets have no confidence or freshness evidence. Use browser_control.'
         if a=='TYPE': pyautogui.write(str(d.get('text','')));time.sleep(.35);return reason or 'Entered the value.'
         if a=='KEY': k=str(d.get('key','tab'));pyautogui.press(k);time.sleep(.35);return reason or f'Pressed {k}.'
         if a=='SCROLL': dr=str(d.get('dir','down'));pyautogui.scroll(3 if dr=='up' else -3);time.sleep(.5);return reason or f'Scrolled {dr}.'
@@ -58,12 +60,7 @@ def _act(d):
 def run(parameters:dict,player=None,session_memory=None):
     a=str(parameters.get('action','start')).lower().strip()
     if a=='start':
-        if STATE['running']: return 'The form agent is already working.'
-        if pyautogui is None: return "pyautogui isn't installed."
-        STATE.update(running=True,task=str(parameters.get('task','complete the requested form')),url=str(parameters.get('url','')),log=[],reply=None)
-        if STATE['url']: webbrowser.open(STATE['url'],new=2)
-        threading.Thread(target=_loop,args=(player,),daemon=True).start()
-        return "On it. I'll inspect the form, use what I remember, narrate each step, and ask you whenever I need information."
+        return 'The legacy background form loop is disabled because it bypasses task cancellation and target verification. Use browser_control inspect, smart_type and smart_click through the current CHIDVI task; confirm submission on the desktop.'
     if a=='status': return f"Form agent: {STATE['log'][-1] if STATE['log'] else 'starting page inspection.'}" if STATE['running'] else "The form agent isn't running."
     if a=='answer':
         with STATE['lock']: STATE['reply']=str(parameters.get('text','')).strip()

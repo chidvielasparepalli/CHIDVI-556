@@ -105,3 +105,6 @@ def app_builder(
     except Exception as exc:
         log(f"App Builder stopped safely: {type(exc).__name__}: {exc}")
         return f'{{"ok":false,"status":"ERROR","message":{__import__("json").dumps(str(exc))}}}'
+
+
+TOOL["handler"] = app_builder

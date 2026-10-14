@@ -6,6 +6,7 @@ from typing import Any
 from google import genai
 from google.genai import types
 from core.action_loader import ActionRegistry, discover_actions
+from core.task_control import result_state
 
 class LongHorizonAgent:
     def __init__(self, *, base_dir: Path, context: dict[str, Any] | None = None, max_steps: int = 32, logger=print):
@@ -16,14 +17,12 @@ class LongHorizonAgent:
         self.history: list[dict[str, Any]] = []
         self.registry: ActionRegistry = discover_actions(self.base_dir / "actions", logger=logger)
         self.registry._actions.pop("autonomous_task", None)
-        self.client = genai.Client(api_key=self._api_key())
+        from core.provider_client import configured_client
+        self.client = configured_client(role="chat", task_kind="planning")
 
     def _api_key(self) -> str:
-        path = self.base_dir / "config" / "api_keys.json"
-        data = json.loads(path.read_text(encoding="utf-8"))
-        key = str(data.get("gemini_api_key") or data.get("GEMINI_API_KEY") or "").strip()
-        if not key: raise RuntimeError("Gemini API key is missing from config/api_keys.json")
-        return key
+        from memory.config_manager import get_gemini_key
+        return get_gemini_key() or ""
 
     def _planner_prompt(self, objective: str) -> str:
         tools = self.registry.get_tool_declarations()
@@ -46,17 +45,30 @@ Return JSON only: {{"done":false,"summary":"short status","tool":"tool_name","ar
         if not objective: return {"ok":False,"summary":"No objective supplied.","steps":[]}
         self.history = []
         for step in range(1, self.max_steps + 1):
+            cancelled = self.context.get("cancel_event")
+            if cancelled is not None and cancelled.is_set():
+                return {"ok":False,"summary":"Task cancelled.","steps":self.history}
             try: decision = self._plan(objective)
             except Exception as exc:
                 self.history.append({"step":step,"tool":"planner","ok":False,"output":f"{type(exc).__name__}: {exc}"})
                 return {"ok":False,"summary":"Planner failed; no further action was taken.","steps":self.history}
-            if decision.get("done") is True: return {"ok":True,"summary":decision.get("summary","Task completed."),"steps":self.history}
+            if cancelled is not None and cancelled.is_set():
+                return {"ok":False,"summary":"Task cancelled during planning.","steps":self.history}
+            if decision.get("done") is True:
+                if not self.history or not self.history[-1]["ok"]:
+                    return {"ok":False,"summary":"Completion was not supported by a successful tool result.","steps":self.history}
+                return {"ok":True,"summary":decision.get("summary","Task completed."),"steps":self.history}
             name = str(decision.get("tool", "")).strip(); args = decision.get("arguments") or {}
             if not name or not isinstance(args, dict):
                 self.history.append({"step":step,"tool":name,"ok":False,"output":"Planner produced an invalid action."}); continue
             if not self.registry.has(name):
                 self.history.append({"step":step,"tool":name,"ok":False,"output":"Unknown tool."}); continue
             self.logger(f"[Autonomy {step}/{self.max_steps}] {decision.get('reason','Executing next action.')}")
+            if cancelled is not None and cancelled.is_set():
+                return {"ok":False,"summary":"Task cancelled before the next action.","steps":self.history}
             output = self.registry.run(name, args, self.context)
-            self.history.append({"step":step,"tool":name,"ok":True,"output":output})
+            failed = result_state(output) == "failed"
+            self.history.append({"step":step,"tool":name,"ok":not failed,"output":output})
+            if "[CONFIRMATION_PENDING]" in str(output):
+                return {"ok":False,"summary":"Waiting for confirmation on the desktop.","steps":self.history}
         return {"ok":False,"summary":f"Stopped after {self.max_steps} steps before the objective was verified complete.","steps":self.history}

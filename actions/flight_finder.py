@@ -19,8 +19,8 @@ API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from memory.config_manager import get_gemini_key
+    return get_gemini_key() or ""
 
 _MONTH_MAP: dict[str, int] = {
 
@@ -60,8 +60,8 @@ def _parse_date(raw: str) -> str:
             return val.strftime("%Y-%m-%d")
 
     try:
-        from google import genai as _genai
-        _client  = _genai.Client(api_key=_get_api_key())
+        from core.provider_client import configured_client
+        _client  = configured_client(role="chat", task_kind="planning")
         response = _client.models.generate_content(
             model="gemini-flash-lite-latest",
             contents=(
@@ -152,10 +152,10 @@ def _parse_flights_with_gemini(
     destination: str,
     date:        str,
 ) -> list[dict]:
-    from google import genai as _genai
+    from core.provider_client import configured_client
     from google.genai import types
 
-    _client = _genai.Client(api_key=_get_api_key())
+    _client = configured_client(role="chat", task_kind="web_search")
     prompt  = (
         f"Extract flight options from {origin} to {destination} on {date} "
         f"from this Google Flights page text:\n\n{raw_text[:12000]}\n\n"

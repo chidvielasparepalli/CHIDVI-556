@@ -26,14 +26,13 @@ from pathlib import Path
 from datetime import datetime
 
 def _get_api_key() -> str:
-    config_path = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
-    with open(config_path, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from memory.config_manager import get_gemini_key
+    return get_gemini_key() or ""
 
 
-def _gemini_client():
-    from google import genai
-    _c = genai.Client(api_key=_get_api_key())
+def _gemini_client(role="chat"):
+    from core.provider_client import configured_client
+    _c = configured_client(role=role, task_kind="file_processing")
 
     class _W:
         def generate_content(self, contents):
@@ -90,7 +89,7 @@ def _process_image(path: Path, action: str, params: dict, speak=None) -> str:
 
     if action in ("describe", "ocr", "analyze", "read", "extract_text"):
         try:
-            model  = _gemini_client()
+            model  = _gemini_client(role="vision")
             img    = Image.open(path)
             prompt = {
                 "describe": "Describe this image in detail.",

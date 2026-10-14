@@ -65,8 +65,6 @@ class Runtime(RUNTIME_GLOBALS["JarvisLive"]):
         self._resume_handle = "existing-conversation"
         self._asst_name = "CHIDVI"
         self._dashboard = None
-        self._pending_vision = None
-        self._vision_close_pending = False
         self._personality_reconnect_pending = False
         self._personality_reconnect_reason = ""
         self._game_stop = threading.Event()
@@ -191,6 +189,13 @@ class PersonalityVoiceRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runtime.audio_in_queue.empty())
         self.assertTrue(runtime._turn_done_event.is_set())
         self.assertEqual(runtime._session_log[-1], "CHIDVI: Next response must be heard.")
+
+    async def test_interrupt_pauses_active_repair_observation(self):
+        observation = Mock()
+        observation.snapshot.return_value = {'mode': 'running'}
+        self.runtime._repair = SimpleNamespace(observation=observation)
+        self.runtime.interrupt()
+        observation.pause.assert_called_once_with()
 
     async def test_interrupt_during_upstream_turn_drains_only_that_turn(self):
         runtime = self.runtime

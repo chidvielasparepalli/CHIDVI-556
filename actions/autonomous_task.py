@@ -1,5 +1,6 @@
 """High-level long-horizon autonomous task entry point for CHIDVI-556."""
 from __future__ import annotations
+import json
 
 from core.long_horizon_agent import LongHorizonAgent
 
@@ -35,6 +36,6 @@ def run(parameters: dict, **ctx) -> str:
             except Exception: pass
         print(text)
     agent = LongHorizonAgent(base_dir=BASE_DIR, context=ctx, max_steps=max_steps, logger=log)
-    return str(agent.run(objective))
+    return json.dumps(agent.run(objective), ensure_ascii=False, default=str)
 
 TOOL["handler"] = run

@@ -6,6 +6,9 @@
 
 # ── Secrets. Committing any of these publishes them. ──────────────────────────
 config/api_keys.json
+config/providers.json
+config/provider_credentials.dpapi
+config/provider_recovery/
 config/certs/
 config/whatsapp_web/
 **/token*.json
