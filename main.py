@@ -1721,6 +1721,8 @@ class JarvisLive:
                         self._provider_voice_suppressed = True
                         content = response.server_content
                         transcript = getattr(getattr(content, "input_transcription", None), "text", "") or ""
+                        if transcript:
+                            self._handle_screen_watch_voice_command(_clean_transcript(transcript))
                         if any(word in transcript.lower() for word in _STOP_WORDS):
                             self.interrupt()
                         if response.tool_call:
