@@ -1,984 +1,461 @@
 # ⚡ CHIDVI-556
 
-> **AI Companion • AGI Research Prototype**
+<p align="center"><img src="https://kommodo.ai/i/02tMX9tzYywhaBL1DJM1" alt="CHIDVI-556 interface" width="100%"></p>
 
-CHIDVI-556 is the next-generation evolution of CHIDVI-555.
+> **AI Companion • Autonomous AI Command Center • AGI Research Prototype**
 
-It is an experimental general-purpose AI system focused on autonomous reasoning, planning, memory, learning, tool use, computer interaction, and multi-step task execution.
+CHIDVI-556 is the next evolution of CHIDVI-555 — a persistent AI system designed to move beyond simple question-and-answer interaction toward **goal-driven execution, memory, tool use, observation, verification, and recovery**.
 
-> ⚠️ **CHIDVI-556 is an AGI research prototype. It does not claim to be true AGI or ASI.**
+> **Research note:** CHIDVI-556 is an evolving prototype exploring autonomous-agent and AGI-oriented architecture. It does not claim to be AGI or ASI.
 
 ---
 
 ## 🧠 Vision
 
-The long-term vision is to explore increasingly capable general-purpose AI systems.
+The long-term direction is to build an AI operating layer that can understand a high-level objective, plan the work, use available tools, observe what happened, correct failures, learn useful context, and continue until the task is complete or requires human input.
 
 ```text
-CHIDVI-555
-     │
-     ▼
-CHIDVI-556
-AGI Research Prototype
-     │
-     ▼
-Advanced AGI Research
-     │
-     ▼
-Future ASI Research
-
-The development philosophy is:
-
-Learn → Build → Explore → Evolve
-
-🚀 Core Intelligence Loop
-
-CHIDVI-556 is designed around an autonomous cognitive loop:
-
-┌───────────────┐
-│     GOAL      │
-└───────┬───────┘
-        ↓
-┌───────────────┐
-│   UNDERSTAND  │
-└───────┬───────┘
-        ↓
-┌───────────────┐
-│     PLAN      │
-└───────┬───────┘
-        ↓
-┌───────────────┐
-│    EXECUTE    │
-└───────┬───────┘
-        ↓
-┌───────────────┐
-│    EVALUATE   │
-└───────┬───────┘
-        ↓
-┌───────────────┐
-│    CORRECT    │
-└───────┬───────┘
-        ↓
-┌───────────────┐
-│     LEARN     │
-└───────┬───────┘
-        │
-        └──────────────► REPEAT
-
-The objective is to move beyond simple question-and-answer interaction toward systems capable of completing complex multi-step objectives.
-
-✨ Capabilities
-Capability	Status
-🤖 LLM Interaction	🟢 Active
-🎙️ Voice Input	🟢 Active
-🔊 Text-to-Speech	🟢 Active
-🎭 Personality System	🟢 Active
-🔌 Plugin System	🟢 Active
-🧠 Short-Term Memory	🟢 Active
-💾 Long-Term Memory	🟡 Developing
-🖥️ Computer Control	🟡 Developing
-📱 Phone Control	🟡 Developing
-🌐 Web Research	🟡 Developing
-💻 Coding & Debugging	🟡 Developing
-📊 Data Analysis	🟡 Developing
-🧩 Multi-Agent System	🔵 Planned
-🔄 Self-Evaluation	🔵 Planned
-🧠 Adaptive Learning	🔵 Planned
-🧪 Experimentation	🔵 Planned
-📚 Knowledge Management	🔵 Planned
-🤝 Autonomous Task Execution	🔵 Planned
-🏗️ System Architecture
-
-The planned CHIDVI-556 architecture is organized around several intelligence layers.
-
-                         ┌───────────────────────┐
-                         │      CHIDVI-556       │
-                         │   AGI RESEARCH CORE   │
-                         └───────────┬───────────┘
-                                     │
-             ┌───────────────────────┼───────────────────────┐
-             │                       │                       │
-             ▼                       ▼                       ▼
-      ┌────────────┐         ┌────────────┐         ┌────────────┐
-      │    AGENT   │         │   MEMORY   │         │   TOOLS    │
-      └─────┬──────┘         └─────┬──────┘         └─────┬──────┘
-            │                      │                      │
-            └──────────────────────┼──────────────────────┘
-                                   ▼
-                         ┌──────────────────┐
-                         │  TASK PLANNER    │
-                         └────────┬─────────┘
-                                  ▼
-                         ┌──────────────────┐
-                         │    EXECUTOR      │
-                         └────────┬─────────┘
-                                  ▼
-                         ┌──────────────────┐
-                         │    EVALUATOR     │
-                         └────────┬─────────┘
-                                  ▼
-                         ┌──────────────────┐
-                         │  ERROR CORRECTOR │
-                         └────────┬─────────┘
-                                  ▼
-                         ┌──────────────────┐
-                         │ LEARNING SYSTEM  │
-                         └────────┬─────────┘
-                                  │
-                                  └──────────────► MEMORY
-🤖 Agent System
-
-CHIDVI-556 is intended to evolve from a traditional assistant into an agent-based system.
-
-Instead of treating every request as a single response, the system should eventually be able to:
-
-User Goal
-   ↓
-Interpret Goal
-   ↓
-Determine Required Capabilities
-   ↓
-Create Plan
-   ↓
-Select Tools / Agents
-   ↓
-Execute Steps
-   ↓
-Verify Results
-   ↓
-Recover From Errors
-   ↓
-Return Result
-
-Future specialized agents may include:
-
-                    CHIDVI-556
-                         │
-        ┌────────────────┼────────────────┐
-        │                │                │
-        ▼                ▼                ▼
-   Research Agent   Coding Agent    Computer Agent
-        │                │                │
-        ▼                ▼                ▼
-   Data Agent       Debug Agent      Phone Agent
-        │                │                │
-        └────────────────┼────────────────┘
-                         ▼
-                  Coordinator Agent
-🧠 Memory Architecture
-
-Memory is a major component of CHIDVI-556.
-
-The planned architecture separates different forms of memory.
-
-                    MEMORY SYSTEM
-                         │
-          ┌──────────────┼──────────────┐
-          │              │              │
-          ▼              ▼              ▼
-   Short-Term       Long-Term       Working
-     Memory           Memory         Memory
-          │              │              │
-          └──────────────┼──────────────┘
-                         ▼
-                 Knowledge System
-
-The system is intended to use memory for:
-
-Conversation context
-User preferences
-Previous tasks
-Successful solutions
-Failed attempts
-Tool results
-Learned information
-Important knowledge
-Task history
-🔄 Self-Evaluation
-
-A major difference between a normal assistant and an autonomous agent is the ability to evaluate its own work.
-
-CHIDVI-556 is designed to eventually support:
-
+Goal
+  ↓
+Understand
+  ↓
+Plan
+  ↓
 Execute
-   ↓
-Observe Result
-   ↓
+  ↓
 Evaluate
+  ↓
+Correct
+  ↓
+Learn
+  ↓
+Repeat
+```
+
+The core idea is simple: **don't just answer the user — help accomplish the objective.**
+
+---
+
+## 🚀 Current Capabilities
+
+| System | Capability |
+|---|---|
+| 🎙️ Voice | Conversational voice interaction and narrated actions |
+| 🧠 Memory | Persistent long-term memory across sessions |
+| 🤖 Autonomy | Bounded goal-driven task execution |
+| 🌐 Browser | Browser and computer interaction |
+| 🔌 Plugins | Auto-discovered plugin architecture |
+| 🛠️ Actions | Auto-discovered executable tools |
+| 📝 Forms | Memory-aware form assistance |
+| 🖼️ Images | Gemini-powered image generation |
+| 📱 Android | Wireless phone control through companion HTTP service |
+| 🎮 Desktop | Application and desktop control |
+| 🧊 Blender | Blender / 3D scene automation integration |
+
+---
+
+## 🤖 Autonomous Agent
+
+CHIDVI-556 can accept an **objective** instead of only a single command.
+
+For example:
+
+> "Open this website, find the registration form, fill the fields you already know, and tell me what information is missing."
+
+The autonomous runner follows a bounded execution loop:
+
+```text
+Objective
    ↓
- ┌───────────────┐
- │ Correct?      │
- └───────┬───────┘
-         │
-     ┌───┴───┐
-     │       │
-    YES      NO
-     │       │
-     ▼       ▼
- Complete   Correct
-             │
-             ▼
-           Retry
+Plan next action
+   ↓
+Execute tool
+   ↓
+Observe result
+   ↓
+Evaluate progress
+   ↓
+Re-plan
+   ↓
+Verify completion
+```
 
-This enables the system to detect failures instead of blindly assuming that every action succeeded.
+Execution is intentionally bounded to prevent uncontrolled loops and recursive self-invocation.
 
-🛠️ Tool & Plugin Architecture
+---
 
-CHIDVI-556 uses a plugin-oriented architecture.
+## 🧠 Persistent Memory
 
-Plugins allow the core AI to interact with external capabilities without placing every feature directly inside the main agent.
+CHIDVI-556 includes a long-term memory layer for reusable context such as:
 
-Current plugin structure includes:
+- Identity information
+- User preferences
+- Projects
+- Relationships
+- Wishes and goals
+- Useful notes
+- Session summaries
 
+Memory is intended to make the agent more consistent across conversations and autonomous tasks.
+
+The system should **never invent personal information** when memory does not contain a reliable answer.
+
+---
+
+## 📝 Memory-Aware Form Agent
+
+The form-agent prototype combines browser interaction with long-term memory.
+
+Workflow:
+
+```text
+Open URL
+   ↓
+Inspect form
+   ↓
+Understand fields
+   ↓
+Search memory
+   ↓
+Fill confidently known fields
+   ↓
+Ask user for missing / ambiguous information
+   ↓
+Remember reusable answers
+   ↓
+Verify form state
+   ↓
+Request confirmation for sensitive submission
+```
+
+The goal is to make repetitive web forms feel more like a conversation with an assistant than manual data entry.
+
+---
+
+## 🌐 Browser & Computer Control
+
+CHIDVI-556 can use browser/computer actions as part of larger tasks rather than treating each action as an isolated command.
+
+The architecture is designed around discoverable tools so new capabilities can be added without rewriting the entire agent.
+
+---
+
+## 🔌 Plugin & Action Architecture
+
+CHIDVI-556 automatically discovers capabilities from the project structure.
+
+```text
 plugins/
-│
-├── __init__.py
-├── _template.py
-├── _blender_bridge_client.py   (shared HTTP+HMAC client for the Blender bridge)
-│
-├── adb_control.py              (Android via ADB)
-├── barehands_control.py        (hand-tracked board)
-├── blender_control.py          (3D / Blender control — see below)
-├── form_agent.py               (vision form-filler)
-├── game_control.py             (mobile game autoplayer)
-└── wireless_control.py         (Android over WiFi)
+   ├── plugin_a.py
+   ├── plugin_b.py
+   └── ...
 
-The plugin architecture is intended to remain modular and extensible.
+actions/
+   ├── action_a.py
+   ├── action_b.py
+   └── ...
+```
 
-🔌 Plugin Philosophy
+Each capability exposes structured metadata and a handler that can be selected by the agent.
 
-A plugin should provide one well-defined capability.
+This makes the system modular and allows new tools to become available to the autonomous layer without hard-coding every capability into the core loop.
 
-                 CHIDVI CORE
-                     │
-                     ▼
-               Plugin Manager
-                     │
-       ┌─────────────┼─────────────┐
-       ▼             ▼             ▼
-   Calendar       Gmail          Phone
-       │             │             │
-       ▼             ▼             ▼
-   External       External      External
-   Service        Service       Device
+---
 
-This allows new capabilities to be added without rebuilding the entire AI core.
+## 🖼️ Gemini Image Generation
 
-📱 Phone Control
+The `create_image` action provides Gemini-powered image generation with:
 
-CHIDVI-556 is being developed toward direct phone interaction.
+- Multiple aspect ratios
+- Multiple output sizes
+- Local image saving
+- Progress narration
+- Optional opening of generated images
 
-The wireless_control.py plugin provides the foundation for communicating with a connected mobile device.
+Example:
+
+> "Create a cinematic 16:9 futuristic AI command center."
+
+Generated assets are stored under `generated_images/`.
+
+---
+
+## 📱 Wireless Android Control
+
+CHIDVI-556 includes a wireless-control plugin designed to communicate with an Android companion service over a local network or Tailscale connection.
+
+Supported operations include:
+
+- Connection / device checks
+- App launching
+- Tap
+- Swipe
+- Text input
+- Key events
+- Screenshots
+- Home / Back
+- Notifications
+
+```text
+CHIDVI Agent
+     ↓
+wireless_control.py
+     ↓
+HTTP / authenticated bridge
+     ↓
+Android Companion
+     ↓
+Phone
+```
+
+---
+
+## 🧊 Blender & 3D Control
+
+CHIDVI-556 also includes an integration path for controlling Blender programmatically.
 
 The intended architecture is:
 
-                 CHIDVI-556
-                      │
-                      ▼
-             wireless_control.py
-                      │
-                      ▼
-              Secure Connection
-                      │
-                      ▼
-                 Phone Agent
-                      │
-          ┌───────────┼───────────┐
-          ▼           ▼           ▼
-        Screen      Apps       System
-
-Potential capabilities include:
-
-📲 Launch applications
-👆 Tap
-🖐️ Swipe
-⌨️ Type text
-🔙 Back
-🏠 Home
-📸 Screenshot
-🔔 Notifications
-📱 Device information
-🔗 Device connectivity
-
-All device-control functionality should operate through authentication, permission boundaries, and safety checks.
-
-🎙️ Voice System
-
-The voice architecture is designed around a continuous interaction pipeline.
-
-┌──────────────┐
-│ Microphone   │
-└──────┬───────┘
-       ↓
-┌──────────────┐
-│ Speech Input  │
-└──────┬───────┘
-       ↓
-┌──────────────┐
-│ Intent / LLM  │
-└──────┬───────┘
-       ↓
-┌──────────────┐
-│ Agent System  │
-└──────┬───────┘
-       ↓
-┌──────────────┐
-│ Tool / Plugin │
-└──────┬───────┘
-       ↓
-┌──────────────┐
-│ Result        │
-└──────┬───────┘
-       ↓
-┌──────────────┐
-│ Text-to-Speech│
-└──────────────┘
-
-The goal is natural, low-latency interaction while maintaining reliable state management.
-
-🖥️ Blender / 3D Control
-
-## Blender / 3D Control
-
-CHIDVI-556 can drive a local Blender instance to create and modify 3D scenes
-through natural-language requests. This is a **native plugin capability**, not a
-separate project and not a hardcoded model library: the AI agent plans each task,
-executes general Blender operations step by step, inspects the scene after each
-step, and corrects failures — exactly as a human modeller would.
-
-### Architecture
-
 ```text
-CHIDVI-556 AI Agent
-   │   (perceives request → plans → selects the blender_control tool)
-   ▼
-blender_control plugin         plugins/blender_control.py
-   │   (maps agent ops → bridge JSON, HMAC-signed)
-   ▼
-_bridge client helper          plugins/_blender_bridge_client.py
-   │   (localhost HTTP + JSON, HMAC-SHA256 signature)
-   ▼
-Blender bridge add-on          blender_addon/blender_chidvi_bridge.py
-   │   (runs INSIDE Blender, whitelisted command table, main-thread timer)
-   ▼
-Blender Python API (bpy)
-   ▼
-3D scene / model / materials / animation / render
+CHIDVI Agent
+     ↓
+Blender Control Plugin
+     ↓
+Local Authenticated Bridge
+     ↓
+Blender Add-on
+     ↓
+bpy / Blender Scene
 ```
 
-### Why a dedicated bridge (not Blender MCP)
-
-Blender MCP's add-on speaks a private WebSocket protocol tied to Claude Code's MCP
-framework. CHIDVI-556 has no MCP stack and must not depend on Claude Code's
-protocol. This bridge is a plain HTTP+JSON service on `127.0.0.1` using only the
-Python standard library on both sides, so it works anywhere Blender runs and
-stays fully local.
-
-### Installation
-
-1. **Install the Blender add-on**
-   ```
-   python blender_addon/install_blender_addon.py
-   ```
-   (copies the add-on into Blender's user scripts/addons and enables it, or
-   just do it manually: Preferences → Add-ons → Install → pick
-   `blender_addon/blender_chidvi_bridge.py` → enable.)
-
-2. **Launch Blender** (GUI is recommended; headless also works — see below).
-   When the add-on starts it prints:
-   `CHIDVI Bridge: ready on http://127.0.0.1:8147`
-
-3. **CHIDVI-556 finds it automatically.** The add-on writes a one-time HMAC
-   token into Blender's user `scripts/` dir; the plugin reads the same file, so
-   no manual key handshake is needed. The bridge is bound to `127.0.0.1` only.
-
-### Configuration
-
-Everything lives in the plugin settings (⚙ → Plugin Settings → Blender / 3D):
-
-| Field | Default | Meaning |
-|---|---|---|
-| bridge_host | 127.0.0.1 | Bridge address (keep loopback) |
-| bridge_port | 8147 | Bridge port (NOT 9876 — that's Blender MCP's) |
-| bridge_token | *(auto)* | HMAC token; blank = auto-pair from Blender's scripts dir |
-| output_dir | *(OS temp)* | Default render output folder |
-| confirm_destructive | true | Ask for on-screen confirmation before delete/clear/render |
-| exec_python | false | Enable the execute_python command (expert only) |
-
-Values persist in `config/api_keys.json` under `plugin_config.blender_control`.
-
-### Supported operations
-
-| Group | Ops |
-|---|---|
-| Connection | `status`, `health` |
-| Scene inspection | `list_objects`, `scene_info` |
-| Objects | `create_primitive`, `create_mesh`, `set_transform`, `duplicate_object`, `rename_object`, `delete_objects`, `clear_scene`, `object_collection`, `add_modifier`, `boolean_modifier` |
-| Materials | `create_material`, `set_material`, `set_world` |
-| Lighting | `create_light` |
-| Cameras | `create_camera` (optional `aim_at`) |
-| Animation | `add_keyframe`, `set_timeline` |
-| Rendering | `set_render`, `render` |
-| File | `save_blend`, `open_blend` |
-| Advanced | `execute_python` (disabled by default) |
-
-Primitives: cube, sphere, uvsphere, ico, cylinder, cone, torus, plane, grid,
-circle, monkey, empty. Modifiers: subsurf, bevel, array, mirror, solidify,
-boolean, decimate, remesh, and more.
-
-### Security model
-
-- The bridge binds to **127.0.0.1 only** — nothing external can reach it.
-- Every `/rpc` call requires an HMAC-SHA256 signature; unauthenticated POSTs
-  return 401. `execute_python` is **off by default** and stays off unless
-  explicitly enabled in the add-on preferences.
-- Render sample count is hard-capped at 256 by the bridge.
-- Destructive/heavy operations (`delete_objects`, `clear_scene`, `save_blend`,
-  `open_blend`, `render`, `execute_python`) require an **on-screen confirmation
-  banner** (via the same `core/confirm.py` gate used by shutdown/restart) unless
-  `confirm_destructive` is turned off.
-- No CSRF surface: the HTTP handler rejects any non-`application/json`
-  content-type and enforces `Content-Length`.
-
-### Example commands (spoken)
-
-> "Check if Blender is connected."
-> "Create a futuristic spaceship."
-> "Add a red metallic material to the Cube."
-> "Add a point light and a camera aimed at the ship."
-> "Render the scene and save it."
-
-The agent plans multi-step tasks autonomously. For "create a spaceship" it will:
-create primitives for the hull/wings/engines → transform them → apply metallic
-materials → add a glowing engine material → add lights → place a camera → inspect
-→ render.
-
-### Headless (background) mode
-
-The bridge serves two ways:
-- **GUI Blender** — the add-on runs commands on Blender's main thread via a
-  `bpy.app.timers` callback (fast, responsive).
-- **Background (`blender -b --python blender_addon/headless_driver.py`)** — the
-  driver loop drains the queue. Use this for automated rendering / CI.
-
-### Troubleshooting
-
-- **`bridge unreachable`** — Blender isn't running, the add-on isn't enabled, or
-  the port is wrong. Enable the add-on and confirm the "ready on
-  http://127.0.0.1:8147" line in the Blender console (or **Window → Toggle System
-  Console**).
-- **401 / token mismatch** — delete the stale `CHIDVI_bridge_token.txt` in
-  Blender's `scripts/` dir, or set the same token in both places.
-- **"Cannot render, no camera"** — create a camera and set the scene's active
-  camera (`create_camera` with `aim_at` handles this automatically).
-- **Blender MCP already on 9876** — keep the CHIDVI bridge on 8147; no conflict.
-
-For the add-on's own documentation see `blender_addon/README.md`.
-
-🖥️ Computer Interaction
-
-Future versions of CHIDVI-556 are intended to interact with the computer environment.
-
-Potential capabilities include:
-
-Application launching
-File operations
-Browser interaction
-Keyboard input
-Mouse interaction
-Screen understanding
-Terminal interaction
-Code execution
-Development workflows
-Error diagnosis
-
-Computer-control actions should operate inside defined permission and sandbox boundaries.
-
-💻 Coding Intelligence
-
-CHIDVI-556 is intended to become capable of assisting with complete software-development workflows.
-
-Potential workflow:
-
-Requirement
-    ↓
-Understand
-    ↓
-Architecture
-    ↓
-Implementation
-    ↓
-Run
-    ↓
-Test
-    ↓
-Observe Error
-    ↓
-Debug
-    ↓
-Fix
-    ↓
-Retest
-    ↓
-Validate
-
-The objective is not merely code generation.
-
-The system should eventually be able to understand a development objective, modify a project, execute tests, analyze failures, and iterate toward a verified result.
-
-🌐 Web Research
-
-A future research system can operate as:
-
-Research Goal
-     ↓
-Search
-     ↓
-Collect Sources
-     ↓
-Extract Information
-     ↓
-Compare Evidence
-     ↓
-Reason
-     ↓
-Generate Findings
-     ↓
-Store Knowledge
-
-The system should distinguish between:
-
-Retrieved information
-Model-generated reasoning
-Assumptions
-Unverified information
-Verified results
-📊 Data Analysis
-
-CHIDVI-556 is intended to support general data workflows.
-
-Dataset
-   ↓
-Inspect
-   ↓
-Clean
-   ↓
-Analyze
-   ↓
-Visualize
-   ↓
-Interpret
-   ↓
-Generate Findings
-
-Potential applications include:
-
-CSV analysis
-Spreadsheet analysis
-Statistical analysis
-Data visualization
-Pattern detection
-Report generation
-Automated insights
-🧪 Experimentation & Hypothesis Generation
-
-An advanced research capability could allow CHIDVI-556 to generate and test hypotheses.
-
-Observation
-     ↓
-Question
-     ↓
-Hypothesis
-     ↓
-Experiment Design
-     ↓
-Execute
-     ↓
-Collect Results
-     ↓
-Evaluate
-     ↓
-Update Knowledge
-
-This is intended as an experimental research direction rather than a claim of autonomous scientific discovery.
-
-🛡️ Safety Architecture
-
-Autonomy must be combined with strong safety boundaries.
-
-The planned architecture is:
-
-User Request
-     ↓
-Intent Analysis
-     ↓
-Risk Assessment
-     ↓
-Permission Check
-     ↓
-Tool Selection
-     ↓
-Execution
-     ↓
-Result Verification
-     ↓
-User Confirmation
-
-High-impact actions should require explicit approval.
-
-Examples include:
-
-Sending important communications
-Financial actions
-Deleting important data
-Changing system configuration
-Controlling external devices
-Making irreversible changes
-🔐 Permission Model
-
-CHIDVI-556 should eventually support capability-based permissions.
-
-                    CHIDVI-556
-                         │
-                  Permission Layer
-                         │
-       ┌─────────────────┼─────────────────┐
-       ▼                 ▼                 ▼
-     READ              WRITE             EXECUTE
-       │                 │                 │
-       ▼                 ▼                 ▼
-   Low Risk          Medium Risk        High Risk
-
-The agent should never automatically assume unlimited access.
-
-🎨 User Interface
-
-The CHIDVI-556 interface is designed as a futuristic AI command center.
-
-The interface concept includes:
-
-🌌 Central AI avatar
-🧠 AI core visualization
-📊 System monitoring
-🎙️ Voice status
-🧩 Agent controls
-💾 Memory controls
-🔌 Plugin controls
-👁️ Vision interface
-📱 Phone control
-💬 Conversation interface
-⚙️ Settings
-📜 Activity console
-🔄 Autonomous agent loop
-
-The UI is intended to provide a clear visual representation of what the AI is doing internally.
-
-🧭 Development Roadmap
-Phase 1 — CHIDVI-555 Foundation
- LLM interaction
- Voice system
- Personality system
- Memory foundation
- Plugin architecture
- Computer-related functionality
-Phase 2 — CHIDVI-556 Core
- Agent architecture
- Goal management
- Task planner
- Multi-step execution
- Execution state management
- Self-evaluation
- Error recovery
- Improved memory architecture
-Phase 3 — Tool Intelligence
- Computer control
- Phone control
- Web research
- Coding agent
- Debugging agent
- Data analysis
- File intelligence
-Phase 4 — Multi-Agent Intelligence
- Agent coordinator
- Specialized agents
- Agent delegation
- Agent communication
- Parallel task execution
- Agent result evaluation
-Phase 5 — Learning & Knowledge
- Experience memory
- Feedback system
- Knowledge management
- Adaptive planning
- Successful-solution retrieval
- Failure memory
- Experiment tracking
-Phase 6 — Advanced AGI Research
- Long-horizon planning
- General task solving
- Persistent world models
- Advanced reasoning
- Autonomous experimentation
- Improved self-evaluation
- Robust recovery
- General-purpose agent evaluation
-🗺️ Long-Term Architecture
-
-The long-term direction can be represented as:
-
-                        CHIDVI-556
-                            │
-          ┌─────────────────┼─────────────────┐
-          │                 │                 │
-          ▼                 ▼                 ▼
-       Reasoning         Memory            Tools
-          │                 │                 │
-          └─────────────────┼─────────────────┘
-                            ▼
-                         Planning
-                            │
-                            ▼
-                         Agents
-                            │
-                            ▼
-                         Actions
-                            │
-                            ▼
-                        Evaluation
-                            │
-                            ▼
-                       Correction
-                            │
-                            ▼
-                          Learning
-                            │
-                            └──────────► Repeat
-🧩 Technology Direction
-
-CHIDVI-556 is designed as a modular system rather than a single model.
-
-The architecture can combine:
-
-LLMs
- │
- ├── Reasoning
- ├── Planning
- └── Generation
-       │
-       ▼
-Agent Runtime
-       │
-       ├── Memory
-       ├── Tools
-       ├── Plugins
-       ├── Computer Control
-       ├── Phone Control
-       └── External Services
-              │
-              ▼
-        Evaluation Layer
-              │
-              ▼
-        Learning Layer
-
-The exact technologies may evolve as the research progresses.
-
-📁 Project Structure
-
-A simplified conceptual structure:
+The integration is designed for operations such as scene inspection, primitive creation, transforms, materials, lights, cameras, animation, modifiers, rendering, and saving `.blend` files.
 
+Destructive operations and arbitrary Python execution are intended to remain behind explicit safety controls.
+
+---
+
+## 🎙️ Voice & Interaction
+
+Voice is a first-class interaction layer for CHIDVI-556.
+
+The system can combine conversational responses with meaningful action narration so the user can understand what the agent is doing without watching every internal step.
+
+The goal is not constant narration — only useful progress updates when an autonomous task is taking multiple steps.
+
+---
+
+## 🛡️ Safety Principles
+
+Autonomy should remain useful **without becoming uncontrolled**.
+
+CHIDVI-556 follows boundaries such as:
+
+- Do not invent personal data.
+- Do not bypass CAPTCHA, OTP, MFA, passwords, or access controls.
+- Do not silently perform high-consequence actions.
+- Require confirmation before sensitive or irreversible submissions where appropriate.
+- Do not submit graded assessments on behalf of the user.
+- Keep autonomous execution bounded.
+- Avoid recursive autonomous-tool invocation.
+
+Human confirmation remains part of the system whenever the consequences of an action warrant it.
+
+---
+
+## 🏗️ System Architecture
+
+```text
+                         ┌──────────────────────┐
+                         │       CHIDVI UI      │
+                         └──────────┬───────────┘
+                                    │
+                         ┌──────────▼───────────┐
+                         │ Conversation / Voice │
+                         └──────────┬───────────┘
+                                    │
+                    ┌───────────────▼───────────────┐
+                    │       Agent / Orchestrator     │
+                    └───────────────┬───────────────┘
+                                    │
+              ┌─────────────────────┼─────────────────────┐
+              │                     │                     │
+        ┌─────▼─────┐        ┌──────▼──────┐       ┌─────▼─────┐
+        │   Memory  │        │    Tools    │       │  Planner  │
+        └───────────┘        └──────┬──────┘       └───────────┘
+                                    │
+                ┌───────────────────┼───────────────────┐
+                │                   │                   │
+          ┌─────▼─────┐       ┌─────▼─────┐       ┌────▼─────┐
+          │   Browser │       │   Android │       │ Blender  │
+          └───────────┘       └───────────┘       └──────────┘
+                                    │
+                              ┌─────▼─────┐
+                              │   Image   │
+                              │ Generation│
+                              └───────────┘
+```
+
+---
+
+## 📁 Project Structure
+
+```text
 CHIDVI-556/
-│
-├── plugins/
-│   ├── calendar_control.py
-│   ├── calculator.py
-│   ├── chat_takeover.py
-│   ├── excel_writer.py
-│   ├── gmail_control.py
-│   ├── home_assistant.py
-│   ├── pomodoro.py
-│   ├── printer_control.py
-│   ├── shopping_list.py
-│   ├── spaced_repetition.py
-│   ├── upload_video.py
-│   ├── water_reminder.py
-│   └── wireless_control.py
-│
-├── ...
-│
-└── README.md
+├── actions/              # Executable agent actions
+├── core/                 # Agent, loaders and orchestration logic
+├── config/               # Runtime configuration
+├── memory/               # Persistent memory storage and manager
+├── plugins/              # Modular integrations and capabilities
+├── blender_addon/        # Blender-side integration
+├── generated_images/     # Generated image assets
+├── main.py               # Application entry point
+├── ui.py                 # User interface
+├── requirements.txt      # Python dependencies
+└── README.md             # Project documentation
+```
 
-The repository will continue to evolve as new components are introduced.
+---
 
-📈 Project Evolution
-                     CHIDVI
-                       │
-                       ▼
-                ┌─────────────┐
-                │ CHIDVI-555  │
-                │ AI Assistant│
-                └──────┬──────┘
-                       │
-                       ▼
-                ┌─────────────┐
-                │ CHIDVI-556  │
-                │ AGI Research│
-                └──────┬──────┘
-                       │
-                       ▼
-                ┌─────────────┐
-                │ Advanced AGI│
-                │   Research  │
-                └──────┬──────┘
-                       │
-                       ▼
-                ┌─────────────┐
-                │ Future ASI  │
-                │   Research  │
-                └─────────────┘
-🧪 Research Principles
+## 🧩 Development Philosophy
 
-CHIDVI-556 development follows several principles:
+CHIDVI-556 is being built around a few core principles:
 
-1. Build Systematically
+**Modular** — capabilities should be replaceable and independently extensible.
 
-New capabilities should integrate into a coherent architecture rather than being random standalone features.
+**Tool-driven** — the agent should interact with the real world through explicit tools.
 
-2. Measure Progress
+**Observable** — meaningful actions and outcomes should be inspectable.
 
-Capabilities should be evaluated through repeatable tasks and benchmarks.
+**Bounded** — autonomous execution must have limits and escape conditions.
 
-3. Verify Actions
+**Memory-aware** — useful context should persist instead of being rediscovered repeatedly.
 
-The system should verify whether an action actually achieved its intended result.
+**Human-controlled** — the user should remain in control of sensitive decisions and irreversible actions.
 
-4. Learn From Failure
+**Incremental** — each version should improve the architecture without pretending the research problem is already solved.
 
-Failed executions should provide useful information for future attempts.
+---
 
-5. Maintain Human Control
+## 🔭 Roadmap
 
-Important actions should remain subject to user permissions and approval.
+The broader direction includes:
 
-6. Be Realistic
+- More reliable long-horizon planning
+- Better observation and state tracking
+- Automatic failure recovery
+- Stronger task verification
+- Improved memory retrieval and consolidation
+- More capable browser/computer agents
+- Deeper Android and desktop integration
+- Richer Blender / 3D automation
+- Better cross-session task continuity
+- More robust agent evaluation
 
-Current AI systems have significant limitations.
+The goal is to gradually move from **command execution → task execution → persistent autonomous workflows**.
 
-CHIDVI-556 is therefore treated as an experimental research platform rather than proof that true AGI has been achieved.
+---
 
-⚠️ Limitations
+## 🧬 CHIDVI-555 → CHIDVI-556
 
-CHIDVI-556 does not currently represent true Artificial General Intelligence.
+CHIDVI-555 established the foundation for the assistant.
 
-Current AI systems can still experience:
+CHIDVI-556 focuses on extending that foundation toward a more autonomous architecture:
 
-Hallucinations
-Reasoning failures
-Incorrect assumptions
-Tool-use errors
-Context limitations
-Planning failures
-Incomplete world knowledge
-Poor long-horizon reliability
-
-The purpose of CHIDVI-556 is to research architectures that may improve these capabilities.
-
-🎯 First Major Milestone
-
-The first major CHIDVI-556 milestone is:
-
-Build a reliable autonomous agent loop.
-
-The initial target is:
-
-User Goal
-    ↓
-Understand
-    ↓
-Plan
-    ↓
-Execute
-    ↓
-Evaluate
-    ↓
-Correct
-    ↓
-Complete
-
-The system should successfully complete multi-step tasks while:
-
-Maintaining context
-Selecting appropriate tools
-Handling errors
-Verifying results
-Asking for approval when required
-Recording useful information
-
-This becomes the foundation for every future CHIDVI-556 capability.
-
-🚀 Future
-
-The ultimate objective is not simply to create a chatbot.
-
-The objective is to explore whether a modular AI system can progressively combine:
-
-Reasoning
-+
-Planning
-+
-Memory
-+
-Learning
-+
-Tools
-+
-Computer Use
-+
-Multi-Agent Collaboration
-+
-Self-Evaluation
-+
-Knowledge
-+
-Experimentation
-
-into a more capable general-purpose AI system.
-
-📊 Current Status
-PROJECT
-CHIDVI-556
-
-TYPE
-AGI Research Prototype
-
-CURRENT STAGE
-Active Development
-
-PREVIOUS VERSION
+```text
 CHIDVI-555
-
-PRIMARY FOCUS
-Autonomous General-Purpose AI
-
-CORE LOOP
-Goal → Understand → Plan → Execute → Evaluate → Correct → Learn
-
-STATUS
-🟡 ACTIVE DEVELOPMENT
-👨‍💻 Project
-
+Assistant + Tools + Personality
+            ↓
 CHIDVI-556
+Assistant + Memory + Tools + Planning + Observation
+            ↓
+Long-term direction
+Persistent Goal-Driven AI Operating Layer
+```
 
-AI Companion • AGI Research Prototype
+---
 
-LEARN • BUILD • EXPLORE • EVOLVE
+## 📌 Current Status
 
-⚠️ Disclaimer
+CHIDVI-556 is an **active, evolving research/development project**.
 
-CHIDVI-556 is an experimental research and engineering project.
+Some components are production-like utilities, while others are experimental prototypes. The architecture is intentionally being developed in stages so individual capabilities can be tested, verified, and improved before increasing the level of autonomy.
 
-It explores architectures, techniques, and software systems related to increasingly capable general-purpose AI.
+> **Build the capability. Verify it. Then make the agent more autonomous.**
 
-It does not claim to have achieved Artificial General Intelligence (AGI), Artificial Superintelligence (ASI), consciousness, or human-level general intelligence.
+---
 
-Any future claims about capability should be supported by measurable evaluations and reproducible results.
+## ⚡ CHIDVI-556
+
+**A persistent AI command center evolving toward autonomous, tool-using, memory-aware intelligence.**
+
+
+---
+
+## 🏗️ Autonomous App Builder
+
+CHIDVI-556 now includes an **App Builder** action that turns a natural-language product idea into a real full-stack web project.
+
+Example:
+
+> "Build a SaaS dashboard for AI resume analysis with authentication, uploads, analytics, and a responsive premium UI."
+
+The builder follows:
+
+```text
+Idea
+ ↓
+Understand requirements
+ ↓
+Ask blocking questions / credentials
+ ↓
+Plan architecture + design system
+ ↓
+Generate project files
+ ↓
+Install dependencies
+ ↓
+Build
+ ↓
+Open in browser
+ ↓
+Inspect UI + console errors
+ ↓
+Repair bounded failures
+ ↓
+Verify
+ ↓
+Deliver
+```
+
+### What it does
+
+- Generates a dedicated project outside the CHIDVI repository.
+- Starts with a structured architecture and design plan.
+- Asks for missing information instead of guessing.
+- Handles credentials through the generated project's local `.env.local`.
+- Narrates meaningful progress through the existing CHIDVI voice/log pipeline.
+- Generates Next.js + TypeScript projects by default.
+- Runs `npm install` and `npm run build`.
+- Uses Playwright to open the real application.
+- Captures a real browser screenshot and checks console/page errors.
+- Uses a bounded repair loop instead of claiming success after a failed build.
+- Persists builder state under the generated project's `.chidvi/` directory so interrupted work can be resumed.
+- Intentionally pushes generated UI away from generic AI boilerplate and toward a product-specific design system.
+
+### Tool
+
+The auto-discovered action is:
+
+`app_builder`
+
+Supported actions:
+
+```text
+start   → create a new application
+resume  → continue after a blocking user answer
+status  → inspect an existing builder task
+cancel  → stop a builder task
+```
+
+If Playwright's Chromium binary is missing, the builder attempts a one-time local `playwright install chromium` bootstrap before verification.
+
