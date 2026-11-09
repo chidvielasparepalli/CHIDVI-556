@@ -120,6 +120,33 @@ def save_live_sharing_startup(enabled: bool) -> None:
     _save_consent_fields({"live_screen_sharing_startup": enabled})
 
 
+# ── Phone Controller LAN IP ───────────────────────────────────────────────────
+def get_controller_host() -> str | None:
+    """Return the configured LAN IP for phone controller, or None for localhost."""
+    data = load_api_keys()
+    val = data.get("controller_host")
+    if isinstance(val, str) and val.strip():
+        return val.strip()
+    return None
+
+
+def save_controller_host(ip: str | None) -> None:
+    """Persist the LAN IP for phone controller. Pass None to clear (use localhost)."""
+    if ip is not None:
+        if not isinstance(ip, str):
+            raise TypeError("Controller host must be a string or None")
+        ip = ip.strip()
+        # Basic validation
+        import ipaddress
+        try:
+            addr = ipaddress.IPv4Address(ip)
+            if not addr.is_private:
+                raise ValueError("Controller host must be a private LAN IPv4 address")
+        except ipaddress.AddressValueError as e:
+            raise ValueError("Controller host must be a valid IPv4 address") from e
+    _save_consent_fields({"controller_host": ip})
+
+
 def get_gemini_key() -> str | None:
     from core.provider_config import get_provider_store
     key = get_provider_store().gemini_credential()

@@ -16,6 +16,10 @@ ORIGIN = "http://127.0.0.1:8000"
 
 class DashboardTests(unittest.TestCase):
     def setUp(self):
+        # Clear config so tests use env var (localhost) and mocked TLS
+        from memory.config_manager import save_controller_host
+        save_controller_host(None)
+
         self.environment = patch.dict("os.environ", {"CHIDVI_CONTROLLER_HOST":"127.0.0.1", "CHIDVI_CONTROLLER_SESSION_TTL":"43200"})
         self.environment.start()
         self.tls = patch.object(DashboardServer, "_ssl_enabled", return_value=False)
@@ -36,6 +40,9 @@ class DashboardTests(unittest.TestCase):
         self.tls.stop()
         self.environment.stop()
         self.folder.cleanup()
+        # Clear config after tests
+        from memory.config_manager import save_controller_host
+        save_controller_host(None)
 
     def _submit(self, text, request_id, device_id):
         task = {"id":f"task-{len(self.task_list)+1}", "text":text, "request_id":request_id,

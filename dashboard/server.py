@@ -70,12 +70,22 @@ class _UploadSizeLimit:
 class DashboardServer:
     """One server and one agent. Pairing, sessions and history stay in RAM."""
 
-    def __init__(self):
-        self._ip = os.environ.get("CHIDVI_CONTROLLER_HOST", "127.0.0.1").strip()
+    def __init__(self, host: str | None = None):
+        """
+        Initialize dashboard server.
+
+        Args:
+            host: LAN IP address to bind to. If None, reads from config (controller_host)
+                  then falls back to CHIDVI_CONTROLLER_HOST env var, then 127.0.0.1.
+        """
+        if host is None:
+            from memory.config_manager import get_controller_host
+            host = get_controller_host() or os.environ.get("CHIDVI_CONTROLLER_HOST") or "127.0.0.1"
+        self._ip = host.strip()
         try:
             address = ipaddress.IPv4Address(self._ip)
         except ipaddress.AddressValueError as exc:
-            raise ValueError("CHIDVI_CONTROLLER_HOST must be a local IPv4 address.") from exc
+            raise ValueError("Controller host must be a local IPv4 address.") from exc
         self._lan = not address.is_loopback
         if self._lan:
             private = any(address in ipaddress.ip_network(network) for network in

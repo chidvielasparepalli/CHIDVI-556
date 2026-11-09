@@ -10,7 +10,7 @@ from datetime import datetime
 from PyQt6.QtCore import Qt, QTimer, QRect, QRectF, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QDialog, QDoubleSpinBox, QFormLayout,
-                            QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton,
+                            QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                             QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
 
@@ -728,6 +728,38 @@ class VisionPrivacyDialog(QDialog):
         self.scroll.setMinimumSize(0, 0)
         content = QWidget()
         body = QVBoxLayout(content)
+
+        # Error color for notes and error labels
+        error_color = "#b3261e" if self.palette().window().color().lightness() > 128 else "#ffb1a8"
+
+        # ── Phone Controller LAN IP ─────────────────────────────────────────────
+        from memory.config_manager import get_controller_host
+        controller_group = QGroupBox("Phone Controller (Remote Access)")
+        controller_body = QVBoxLayout(controller_group)
+        self.controller_ip = QLineEdit()
+        self.controller_ip.setPlaceholderText("e.g., 192.168.1.50 (leave empty for localhost only)")
+        current_host = get_controller_host() or ""
+        self.controller_ip.setText(current_host)
+        self.controller_ip.setToolTip("Your laptop's LAN IPv4 address. Phone connects to this IP over HTTPS. "
+                                      "Requires TLS certificates (auto-generated). Leave empty for localhost-only.")
+        controller_body.addWidget(QLabel("LAN IPv4 Address:"))
+        controller_body.addWidget(self.controller_ip)
+        self.controller_save = QPushButton("Save Phone Controller IP")
+        self.controller_save.clicked.connect(self._save_controller_host)
+        controller_body.addWidget(self.controller_save)
+        controller_note = QLabel("Set this to your laptop's Wi-Fi IP (e.g., 192.168.x.x or 10.x.x.x) to enable phone pairing. "
+                                 "After saving, restart JARVIS. Certificates are auto-generated on next start if missing. "
+                                 "See docs/phone-controller.md for phone-side CA certificate installation.")
+        controller_note.setWordWrap(True)
+        controller_note.setStyleSheet(f"color: {error_color};")
+        controller_body.addWidget(controller_note)
+        self.controller_error = QLabel()
+        self.controller_error.setWordWrap(True)
+        self.controller_error.setStyleSheet(f"color: {error_color};")
+        self.controller_error.hide()
+        controller_body.addWidget(self.controller_error)
+        body.addWidget(controller_group)
+
         self.cloud_vision = QCheckBox("Cloud Vision")
         self.cloud_vision.setObjectName("cloud_vision_enabled")
         self.cloud_vision.setChecked(panel.cloud_vision.isChecked())
@@ -741,7 +773,6 @@ class VisionPrivacyDialog(QDialog):
         body.addWidget(self.explanation)
         self.error = QLabel(panel.cloud_vision_error.text())
         self.error.setWordWrap(True)
-        error_color = "#b3261e" if self.palette().window().color().lightness() > 128 else "#ffb1a8"
         self.error.setStyleSheet(f"color: {error_color};")
         self.error.setVisible(bool(self.error.text()))
         body.addWidget(self.error)
@@ -823,6 +854,23 @@ class VisionPrivacyDialog(QDialog):
         panel.live_controls_changed.connect(self._sync_live)
         panel.live_startup_changed.connect(self._sync_startup)
         self._sync_live()
+
+    def _save_controller_host(self):
+        from memory.config_manager import save_controller_host
+        ip = self.controller_ip.text().strip()
+        if not ip:
+            save_controller_host(None)
+            self.controller_error.setText("Cleared. JARVIS will use localhost only (no phone access). Restart to apply.")
+            self.controller_error.setVisible(True)
+            return
+        try:
+            save_controller_host(ip)
+        except Exception as e:
+            self.controller_error.setText(f"Invalid IP: {e}")
+            self.controller_error.setVisible(True)
+            return
+        self.controller_error.setText(f"Saved: {ip}. Restart JARVIS to apply. Certificates auto-generated if missing.")
+        self.controller_error.setVisible(True)
 
     def _sync_live(self):
         panel = self.panel

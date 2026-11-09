@@ -21,7 +21,8 @@ def runtime_class():
     tree = ast.parse(path.read_text(encoding="utf-8"))
     node = next(item for item in tree.body if isinstance(item, ast.ClassDef) and item.name == "JarvisLive")
     methods = {"_sharing_context", "_control_screen_sharing", "_start_saved_sharing",
-               "_process_dashboard_commands", "_cancel_task", "interrupt", "_set_cloud_vision"}
+               "_process_dashboard_commands", "_cancel_task", "interrupt", "_set_cloud_vision",
+               "_is_vision_provider_configured"}
     node.body = [item for item in node.body if getattr(item, "name", None) in methods]
     scope = {"asyncio": asyncio, "json": json, "confirm_gate": SimpleNamespace(resolve=Mock())}
     exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), "exec"), scope)
@@ -64,6 +65,7 @@ class LiveSharingRuntimeTests(unittest.IsolatedAsyncioTestCase):
         runtime._vision_notices = set()
         runtime._loop = None
         runtime.request_reconnect = Mock()
+        runtime._is_vision_provider_configured = Mock(return_value=True)
 
     def task(self, text="Look at the screen", request_id="first", claim=True):
         task = self.runtime._tasks.submit(text, request_id)

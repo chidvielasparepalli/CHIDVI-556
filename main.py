@@ -968,8 +968,41 @@ class JarvisLive:
         except (ScreenSharingError, ValueError, TypeError) as exc:
             return {"ok": False, "code": getattr(exc, "code", "invalid_settings"), "message": str(exc)}
 
+    def _is_vision_provider_configured(self) -> bool:
+        """Check if a vision provider is properly configured for image analysis."""
+        from memory.config_manager import get_cloud_vision_enabled, load_api_keys
+        from core.provider_config import get_provider_store
+        from core.desktop_control import get_service
+
+        if not get_cloud_vision_enabled():
+            return False
+        if not get_service().cloud_vision_enabled:
+            return False
+
+        cfg = load_api_keys()
+        store = get_provider_store()
+        profile = store.selected("vision", task_kind="vision")
+        key = store.credential(profile["id"]) if profile else cfg.get("gemini_api_key")
+
+        # Vision provider needs either a profile with valid credentials or a legacy Gemini key
+        if profile:
+            if profile.get("auth_type") != "none" and not key:
+                return False
+            # Check if the profile actually supports vision
+            from core.providers import model_capabilities
+            caps = model_capabilities(profile["provider"], profile["model"], profile.get("capabilities"))
+            if caps.get("vision") is not True:
+                return False
+        elif not key:
+            return False
+
+        return True
+
     def _handle_screen_watch_voice_command(self, transcript):
-        """Apply only direct spoken start/stop commands; never infer screen consent."""
+        """Apply only direct spoken start/stop commands; never infer screen consent.
+
+        Autonomously initializes screen sharing and ensures vision provider is ready.
+        """
         from core.screen_watch_commands import classify_screen_watch_command
 
         action = classify_screen_watch_command(transcript)
@@ -985,6 +1018,12 @@ class JarvisLive:
                 # Input transcription may repeat a phrase in multiple chunks.
                 if state in {"LIVE", "STARTING"}:
                     return True
+
+                # Check if vision provider is configured for analysis
+                vision_ready = self._is_vision_provider_configured()
+                if not vision_ready:
+                    self.ui.write_log("SYS: Vision provider not configured — screen sharing will start for live streaming only. Configure a vision provider in AI Providers for image analysis.")
+
                 # A direct user's utterance is explicit consent, but saved Cloud
                 # Vision permission, provider scoping, sensitivity checks, and the
                 # normal bounded streaming/rate limits remain enforced.
@@ -998,6 +1037,8 @@ class JarvisLive:
                 new_state = result.get("state", "UNKNOWN")
                 detail = ("; sampled frames will continue while LIVE" if action == "start" else
                           "; frame transmission is stopping")
+                if action == "start" and not vision_ready:
+                    detail += " (vision analysis unavailable until provider is configured)"
                 self.ui.write_log(f"SYS: Voice screen-watch command: {new_state}{detail}.")
             else:
                 message = str(result.get("message") or result.get("error") or "sharing is unavailable")
@@ -1012,6 +1053,11 @@ class JarvisLive:
         self._sharing_startup_attempted = True
         from memory.config_manager import get_live_sharing_startup
         if get_live_sharing_startup():
+            # Check if vision provider is configured
+            vision_ready = self._is_vision_provider_configured()
+            if not vision_ready:
+                self.ui.write_log("SYS: Vision provider not configured — saved screen sharing will start for live streaming only. Configure a vision provider in AI Providers for image analysis.")
+
             result = self._control_screen_sharing("start", explicit=True)
             if not result["ok"]:
                 self.ui.write_log("ERR: Saved live sharing startup could not begin: " + result.get("message", result.get("error", "unknown error")))
@@ -1404,7 +1450,7 @@ class JarvisLive:
             review = result["code"].startswith("image_review_")
             notice = (result["code"], self._vision_permission_generation,
                       self._tasks.owner() if review else None)
-            disabled = result["code"] == "backend_unavailable"
+            disabled = result["code"] in {"backend_unavailable", "provider_unconfigured"}
             if not (disabled or review) or notice not in self._vision_notices:
                 if disabled or review:
                     self._vision_notices.add(notice)
@@ -2472,6 +2518,7 @@ class JarvisLive:
             if diagnostic:
                 raise RuntimeError("Disabled in live sharing acceptance mode")
             from dashboard.server import DashboardServer
+            # Host is read from config (controller_host) or env var CHIDVI_CONTROLLER_HOST
             self._dashboard = DashboardServer()
             self._dashboard.set_connect_callback(self._on_phone_connected)
             self._dashboard.set_task_callbacks(self._submit_task, self._cancel_task, self._tasks.snapshot)
